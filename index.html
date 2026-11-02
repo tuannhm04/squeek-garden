@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Squeek Garden</title>
+<meta name="description" content="A pixel garden that grows on Squeektoshi's real wheel rounds on Squeekchain.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="garden.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Squeek<br>Garden</h1>
+      <p class="lede">Plant seeds. Squeektoshi's real wheel rounds grow them. Naps, jogs and zoomies each feed a different plant, so read the hamster before you sow.</p>
+    </div>
+    <div class="modes" role="group" aria-label="Data source">
+      <button id="mLive" aria-pressed="true">Live</button>
+      <button id="mDemo" aria-pressed="false">Demo</button>
+    </div>
+  </header>
+
+  <div class="screen">
+    <canvas id="scene" class="scene" aria-label="Your garden and Squeektoshi's wheel, spinning at its live speed"></canvas>
+    <span id="sceneLabel" class="scene-label">Looking for the wheel…</span>
+  </div>
+
+  <section class="win wheel" aria-labelledby="h-wheel">
+    <div class="win-head">
+      <h2 id="h-wheel">The wheel</h2>
+      <span id="wheelPill" class="pill">Connecting…</span>
+    </div>
+    <div class="wheel-grid">
+      <dl class="readout">
+        <div><dt>Round</dt><dd id="rNum">-</dd></div>
+        <div><dt>Ends in</dt><dd id="rLeft">-</dd></div>
+        <div><dt>Work</dt><dd id="rWork">-</dd></div>
+        <div><dt>Mood</dt><dd id="rClass">-</dd></div>
+      </dl>
+      <figure class="strip">
+        <svg id="strip" viewBox="0 0 480 110" shape-rendering="crispEdges" role="img" aria-label="Work in the last 24 rounds"></svg>
+        <figcaption>
+          <span><img class="ico" data-icon="moon" alt=""> Nap 0</span>
+          <span><img class="ico" data-icon="paw" alt=""> Jog 1-499</span>
+          <span><img class="ico" data-icon="bolt" alt=""> Zoomies 500+</span>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <div class="main">
+    <div class="col">
+      <section class="win" aria-labelledby="h-garden">
+        <div class="win-head">
+          <h2 id="h-garden">Your plots</h2>
+          <div class="purse">
+            <span>LV <b id="sLevel">1</b></span>
+            <span class="xp"><span class="xpbar"><i id="xpBar"></i></span><small id="xpText"></small></span>
+            <span class="pips"><img class="ico" data-icon="coin" alt=""><b id="sPips">60</b></span>
+          </div>
+        </div>
+        <p class="hint" id="plotHint">Pick a seed or tool, then tap a plot.</p>
+        <div id="plots" class="plots"></div>
+        <p class="hint">Seeds react from the NEXT round. Pick ripe plants within 12 rounds or they rot. Two or more other species next to a plant: +20%.</p>
+      </section>
+
+      <section class="win" aria-labelledby="h-book">
+        <div class="win-head"><h2 id="h-book">Herbarium</h2></div>
+        <ul id="herb" class="herb"></ul>
+        <ul id="ach" class="ach"></ul>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="win" aria-labelledby="h-quest">
+        <div class="win-head"><h2 id="h-quest">Quest</h2></div>
+        <p id="quest" class="quest"></p>
+      </section>
+      <section class="win" aria-labelledby="h-seeds">
+        <div class="win-head"><h2 id="h-seeds">Seed shop</h2></div>
+        <div id="seeds" class="seeds"></div>
+      </section>
+      <section class="win" aria-labelledby="h-tools">
+        <div class="win-head"><h2 id="h-tools">Tools</h2></div>
+        <div class="tools">
+          <button id="tWater" class="tool" aria-pressed="false"><img class="ico big" data-icon="can" alt=""><span><b>Watering can</b><small>One step of help for a growing plant. <span id="waterState">ready</span></small></span></button>
+          <button id="tCloche" class="tool" aria-pressed="false"><img class="ico big" data-icon="dome" alt=""><span><b>Glass cloche ×0</b><small>Saves a plant from the next thing that would wilt it.</small></span></button>
+          <button id="bCloche" class="buy">Buy cloche · 25</button>
+        </div>
+      </section>
+      <section class="win" aria-labelledby="h-score">
+        <div class="win-head"><h2 id="h-score">This week</h2></div>
+        <dl class="score">
+          <div><dt>Season</dt><dd id="sSeason">0</dd></div>
+          <div><dt>Best</dt><dd id="sBest">0</dd></div>
+          <div><dt>Picked</dt><dd id="sHarvests">0</dd></div>
+        </dl>
+        <p class="hint" id="seasonNote"></p>
+      </section>
+      <section class="win" aria-labelledby="h-log">
+        <div class="win-head"><h2 id="h-log">Diary</h2></div>
+        <ol id="log" class="log"></ol>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="foot">
+    Round data comes from Squeekchain's public API (<code>/v1/events</code> settlements and <code>/v1/status</code>), the same numbers SqueekCore records on Sepolia.
+    Watch Squeektoshi on the <a href="https://x.com/squeekchain" rel="noopener">official livestream</a>. Naps score too: the garden never asks him to run.
+  </footer>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="pixel.js"></script>
+<script src="garden.js"></script>
+</body>
+</html>

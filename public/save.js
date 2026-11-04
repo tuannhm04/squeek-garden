@@ -1,6 +1,6 @@
 // Live garden persistence. Schema v2 stays untouched under its old key: v3 lives beside it,
 // so going back to the previous build always finds the save it knows.
-import { MAX_PLOTS, SEEDS, START_PLOTS } from './engine.js';
+import { DAILY_CHALLENGES, MAX_PLOTS, SEEDS, START_PLOTS } from './engine.js';
 
 export const KEY_V2 = 'squeek-garden:live';
 export const KEY_V3 = 'squeek-garden:live:v3';
@@ -38,6 +38,15 @@ export function validateState(s) {
   if (!isObject(s.ach)) out.push('bad achievements');
   if (!Array.isArray(s.log)) out.push('bad diary');
   if (s.chain !== undefined && typeof s.chain !== 'string') out.push('bad chain');
+  if (s.daily !== null && s.daily !== undefined) {
+    const ok = isObject(s.daily) && Number.isInteger(s.daily.day) && Array.isArray(s.daily.items)
+      && s.daily.items.every(x => isObject(x) && DAILY_CHALLENGES.some(d => d.id === x.id) && isCount(x.progress) && typeof x.done === 'boolean');
+    if (!ok) out.push('bad daily challenges');
+  }
+  if (s.combo !== null && s.combo !== undefined) {
+    const ok = isObject(s.combo) && Number.isInteger(s.combo.count) && s.combo.count >= 1 && Object.hasOwn(SEEDS, s.combo.lastSeed) && isCount(s.combo.lastRound);
+    if (!ok) out.push('bad combo');
+  }
   return out;
 }
 

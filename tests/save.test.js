@@ -156,3 +156,36 @@ test('a chain mark loads and a bad one is refused', () => {
   assert.deepEqual(validateState({ ...blank(), chain: 'sepolia-core' }), []);
   assert.ok(validateState({ ...blank(), chain: 5 }).length);
 });
+
+test('a v2 save with no challenges or combo still loads', () => {
+  const m = new Memory();
+  m.setItem(KEY_V2, JSON.stringify(v2Save()));
+  const { state, report } = loadSave(m, blank);
+  assert.equal(report.source, 'v2');
+  assert.deepEqual(validateState(state), []);
+});
+
+test('a v2 file without the new fields still imports', () => {
+  const s = v2Save(); delete s.daily; delete s.combo;
+  assert.equal(parseImport(JSON.stringify(s)).pips, 345);
+});
+
+test('challenges and combos survive a save and a load', () => {
+  const m = new Memory(), s = blank();
+  s.daily = { day: 20000, items: [{ id: 'pick3', progress: 2, done: false }] };
+  s.combo = { count: 2, lastSeed: 'moonmoss', lastRound: 50 };
+  writeSave(m, s);
+  const { state } = loadSave(m, blank);
+  assert.deepEqual(state.daily, s.daily);
+  assert.deepEqual(state.combo, s.combo);
+});
+
+test('impossible challenges or combos are refused', () => {
+  for (const change of [
+    { daily: { day: 1, items: [{ id: 'free-pips', progress: 0, done: false }] } },
+    { daily: { day: 'today', items: [] } },
+    { daily: { day: 1, items: [{ id: 'pick1', progress: -1, done: false }] } },
+    { combo: { count: 0, lastSeed: 'moonmoss', lastRound: 1 } },
+    { combo: { count: 2, lastSeed: 'gold', lastRound: 1 } },
+  ]) assert.ok(validateState({ ...blank(), ...change }).length, JSON.stringify(change));
+});

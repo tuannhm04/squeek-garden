@@ -39,6 +39,23 @@ export const QUESTS = [
   { id: 'oak1',   text: 'Pick a Mile Oak',                       n: 1, reward: 70, test: h => h.seed === 'mileoak' },
 ];
 
+// Three a day on top of the quest, picked from the day number, so the page and the server always agree.
+export const DAILY_CHALLENGES = [
+  { id: 'plant3',  text: 'Plant 3 seeds',                            n: 3, reward: 15, on: 'plant',   test: () => true },
+  { id: 'water1',  text: 'Use the watering can',                     n: 1, reward: 10, on: 'water',   test: () => true },
+  { id: 'pick1',   text: 'Pick any plant',                           n: 1, reward: 15, on: 'harvest', test: () => true },
+  { id: 'pick3',   text: 'Pick any 3 plants',                        n: 3, reward: 35, on: 'harvest', test: () => true },
+  { id: 'moon1',   text: 'Pick a Moonmoss',                          n: 1, reward: 20, on: 'harvest', test: h => h.seed === 'moonmoss' },
+  { id: 'trot1',   text: 'Pick a Trotbean',                          n: 1, reward: 20, on: 'harvest', test: h => h.seed === 'trotbean' },
+  { id: 'zoom1',   text: 'Pick a Zoomflower',                        n: 1, reward: 25, on: 'harvest', test: h => h.seed === 'zoomflower' },
+  { id: 'mixed1',  text: 'Pick a plant with the mixed-bed bonus',    n: 1, reward: 30, on: 'harvest', test: h => h.diverse },
+  { id: 'combo2',  text: 'Reach a combo of 2 plants',                n: 1, reward: 30, on: 'combo',   test: () => true },
+];
+export const DAILY_COUNT = 3;
+
+// Picking different species close together pays extra pips. It never changes points or XP.
+export const COMBO_WINDOW = 3, COMBO_BONUS = [0, 0, .05, .10, .15];
+
 // ---------- plant rules (pure) ----------
 export const newPlant = (seed, round) => ({ seed, plantedRound: round, status: 'growing', growth: 0, age: 0, work: 0,
   zoomRun: 0, napRun: 0, lastClass: null, lastWork: 0, seen: { nap: 0, jog: 0, zoom: 0 }, cloche: false, ripeRound: null });
@@ -164,7 +181,7 @@ export const levelOf = xp => LEVELS.filter(t => xp >= t).length;
 // ---------- seasons and new gardens ----------
 export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [] });
+  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null });
 
 /** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
 export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
@@ -190,12 +207,51 @@ function unlock(S, id, toasts) {
   toasts.push(`Achievement unlocked: ${ACHIEVEMENTS[id][0]}`);
 }
 
+/** The same three challenges for everyone on a given day. */
+export function dailyFor(day) {
+  const ids = DAILY_CHALLENGES.map(d => d.id);
+  let x = Math.imul(day + 1, 2654435761) | 1;
+  for (let i = ids.length - 1; i > 0; i--) {
+    x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+    const j = (x >>> 0) % (i + 1);
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  return ids.slice(0, DAILY_COUNT);
+}
+
 export function rollPeriods(S, season, questKey) {
   if (rollSeason(S, season)) addLog(S, 'good', 'A new week started. Season score reset.', null);
   if (!S.quest || S.quest.key !== questKey) {
     const q = QUESTS[((questKey % QUESTS.length) + QUESTS.length) % QUESTS.length];
     S.quest = { key: questKey, id: q.id, progress: 0, done: false };
   }
+  if (!S.daily || S.daily.day !== questKey) {
+    S.daily = { day: questKey, items: dailyFor(questKey).map(id => ({ id, progress: 0, done: false })) };
+  }
+}
+
+/** Counts an event towards today's challenges. A finished one pays once and never again. */
+function advanceDaily(S, on, info, cur, toasts) {
+  if (!S.daily) return;
+  for (const item of S.daily.items) {
+    const d = DAILY_CHALLENGES.find(x => x.id === item.id);
+    if (!d || item.done || d.on !== on || !d.test(info)) continue;
+    item.progress++;
+    if (item.progress >= d.n) {
+      item.done = true;
+      S.pips += d.reward;
+      addLog(S, 'good', `Daily challenge done: ${d.text}. +${d.reward} pips.`, cur);
+      toasts.push(`Daily challenge done! +${d.reward} pips`);
+    }
+  }
+}
+
+/** Extends or restarts the combo for a picked plant and returns the extra pips it earns. */
+function advanceCombo(S, seed, value, cur) {
+  const c = S.combo;
+  const count = c && c.lastSeed !== seed && cur - c.lastRound <= COMBO_WINDOW ? c.count + 1 : 1;
+  S.combo = { count, lastSeed: seed, lastRound: cur };
+  return Math.round(value * COMBO_BONUS[Math.min(count, COMBO_BONUS.length - 1)]);
 }
 
 /** Plays every round the garden has not seen yet. Returns true when it stopped to wait for missing history. */
@@ -209,6 +265,7 @@ export function settleRounds(S, rounds, latest, historyEnded = false) {
       if (!historyEnded) { waiting = true; break; } // wait for the history instead of guessing
       rd = { work: null }; missing++;
     }
+    if (rd.work === null) S.combo = null; // a combo cannot span rounds we know nothing about
     if (rd.batch && r === rd.batch.first && S.plots.some(p => p && p.status === 'growing')) {
       addLog(S, '', `Rounds ${rd.batch.first}-${rd.batch.last} settled together, so their work per round is unknown. Growing plants waited.`, r);
     }
@@ -238,6 +295,7 @@ export function syncChain(S, chainId, cur) {
   }
   S.waterAt = Math.min(base + WATER_COOLDOWN, Math.max(0, S.waterAt + shift));
   if (S.processed !== null) S.processed = base;
+  S.combo = null; // measured in the old count
   addLog(S, '', 'Squeekchain restarted its rounds. Your garden carried over and waits for new ones.', cur);
   return true;
 }
@@ -250,7 +308,9 @@ function harvestPlot(S, i, cur) {
   S.seasonScore += value; S.pips += value; S.xp += value; S.harvests++;
   S.best = Math.max(S.best, S.seasonScore);
   S.herb[p.seed] = (S.herb[p.seed] || 0) + 1;
-  addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}.`, cur);
+  const comboPips = advanceCombo(S, p.seed, value, cur);
+  S.pips += comboPips;
+  addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}${comboPips ? `, plus ${comboPips} combo pips` : ''}.`, cur);
   S.plots[i] = null;
 
   const q = S.quest, qd = q && QUESTS.find(x => x.id === q.id);
@@ -258,6 +318,8 @@ function harvestPlot(S, i, cur) {
     q.progress++;
     if (q.progress >= qd.n) { q.done = true; S.pips += qd.reward; addLog(S, 'good', `Quest done: ${qd.text}. +${qd.reward} pips.`, cur); toasts.push(`Quest done! +${qd.reward} pips`); }
   }
+  advanceDaily(S, 'harvest', { seed: p.seed, diverse }, cur, toasts);
+  if (S.combo.count >= 2) advanceDaily(S, 'combo', {}, cur, toasts);
   unlock(S, 'first', toasts);
   if (diverse) unlock(S, 'mixed', toasts);
   if ((S.herb.moonmoss || 0) >= 5) unlock(S, 'night', toasts);
@@ -307,6 +369,7 @@ export function doAction(S, a, cur) {
       S.pips -= sd.price;
       S.plots[i] = newPlant(a.seed, cur);
       addLog(S, '', `Plot ${i + 1}: planted ${sd.name} (−${sd.price} pips). It reacts from round ${cur + 1}.`, cur);
+      advanceDaily(S, 'plant', { seed: a.seed }, cur, done.toasts);
       return done;
     }
     case 'harvest':
@@ -328,6 +391,7 @@ export function doAction(S, a, cur) {
       const ev = water(p, settled);
       S.waterAt = settled + WATER_COOLDOWN;
       addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, cur);
+      advanceDaily(S, 'water', {}, cur, done.toasts);
       return done;
     }
     case 'cover':

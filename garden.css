@@ -173,6 +173,7 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .lower { display: grid; grid-template-columns: 280px minmax(0, 1fr) 320px; gap: 16px; align-items: stretch; }
 @media (max-width: 1000px) { .lower { grid-template-columns: minmax(0, 1fr); } }
 .panel { background: var(--panel); padding: 12px 14px 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.savebar { display: flex; flex-wrap: wrap; gap: 6px; }
 .quest { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .quest b { font-weight: 400; }
 .quest span { background: var(--gold); color: var(--ink); padding: 0 6px; font-size: 19px; }

@@ -92,6 +92,11 @@
           <div><dt>Picked</dt><dd id="sHarvests">0</dd></div>
         </dl>
         <p class="note" id="seasonNote"></p>
+        <div class="savebar">
+          <button id="bExport">Export save</button>
+          <button id="bImport">Import save</button>
+          <input id="fImport" type="file" accept="application/json,.json" hidden>
+        </div>
       </section>
       <section class="panel" aria-labelledby="h-book">
         <h2 id="h-book">Herbarium</h2>
@@ -107,6 +112,6 @@
 </div>
 <div id="toast" class="toast" role="status" hidden></div>
 <script src="pixel.js"></script>
-<script src="garden.js"></script>
+<script type="module" src="garden.js"></script>
 </body>
 </html>

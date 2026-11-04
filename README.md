@@ -37,6 +37,8 @@ All game outcomes come from Squeekchain's public API, which mirrors SqueekCore o
 
 The API allows cross-origin requests, so the site is fully static.
 
+A settlement that closes one round gives that round's exact work. A settlement that closes several rounds only reports their total, so the game never guesses how it was divided: a total of 0 counts as naps, and otherwise growing plants wait out those rounds. Ripe plants still age. If history is missing or the API is down, the garden stops at the last round it has and catches up later, without assuming any work.
+
 **Demo mode** simulates 8-second rounds so you can see a whole growth cycle in a minute.
 
 ## Run it
@@ -53,7 +55,23 @@ Then open http://localhost:8765.
 
 - `index.html`: page structure
 - `garden.css`: styles, light and dark
-- `garden.js`: plant rules (`applyRound`, pure), API client, demo source and rendering
+- `engine.js`: plant rules and seasons (pure, shared with the tests)
+- `settlement.js`: validates settlement events, builds the round ledger and pages through history
+- `save.js`: save validation, v2 to v3 migration, backups, export and import
+- `garden.js`: live and demo sources, game actions and rendering
+- `guide/index.html`: how to play
+
+## Saves
+
+Your garden lives in this browser. Schema v3 is stored beside the old v2 save, which is copied once to a backup and never changed. Export or import a save from "Your record" on the play screen, for example to move to a new address.
+
+## Tests
+
+```bash
+npm test
+```
+
+No dependencies are needed. `tests/fixtures/` holds real API events and the assumptions made about them.
 
 ## Next
 

@@ -1,180 +1,26 @@
+import { ACHIEVEMENTS, CLASS_NAME, CLOCHE_PRICE, LEVELS, MAX_PLOTS, OAK_WORK, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS, WATER_COOLDOWN,
+  applyRound, blankState, classify, harvestValue, levelOf, newPlant, progress, progressText, rollSeason, seasonId, water } from './engine.js';
+import { RoundLedger, fetchHistory } from './settlement.js';
+import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
+
 (() => {
 'use strict';
 
 const API = 'https://api.squeekchain.com/v1';
-const ROUND_S = 600, RIPE_WINDOW = 12, MAX_PLOTS = 9, START_PLOTS = 6, MAX_PAGES = 8, STRIP = 24;
-const OAK_WORK = 3000, WATER_COOLDOWN = 6, CLOCHE_PRICE = 25, PLOT_PRICES = [80, 150, 250];
-const LEVELS = [0, 150, 400, 800, 1500, 2500];
+const ROUND_S = 600, STRIP = 24;
 let GENESIS = 1793022600; // replaced by /v1/core configuration.genesisTimestamp
 
-const classify = w => (w === 0 ? 'nap' : w < 500 ? 'jog' : 'zoom');
-const CLASS_NAME = { nap: 'Nap', jog: 'Jog', zoom: 'Zoomies' };
-
-const SEEDS = {
-  moonmoss:   { name: 'Moonmoss',          color: '--nap',  value: 30,  price: 10, level: 1, blurb: 'Grows one step every nap round. Ripe after 4. Two zoomies rounds in a row shrivel it.' },
-  trotbean:   { name: 'Trotbean',          color: '--jog',  value: 35,  price: 10, level: 1, blurb: 'Grows on jog rounds (1–499 work). Ripe after 3. Three naps in a row and it wilts.' },
-  zoomflower: { name: 'Zoomflower',        color: '--zoom', value: 70,  price: 20, level: 1, blurb: 'Blooms on the first zoomies round (500+). Wilts if none comes within 9 rounds.' },
-  mileoak:    { name: 'Mile Oak',          color: '--leaf', value: 100, price: 30, level: 1, blurb: 'Banks every unit of work. Ripe at 3,000 total. Never wilts, just slow.' },
-  comet:      { name: 'Comet Pepper',      color: '--zoom', value: 95,  price: 25, level: 2, blurb: 'Needs a nap round followed straight away by zoomies. Wilts after 12 rounds.' },
-  dreamcap:   { name: 'Dreamcap',          color: '--nap',  value: 85,  price: 30, level: 3, blurb: 'Needs 3 naps in a row. Any run resets the count. Wilts after 15 rounds.' },
-  twinvine:   { name: 'Twinvine',          color: '--jog',  value: 90,  price: 35, level: 4, blurb: 'Needs two jog rounds in a row within 100 work of each other. Wilts after 12 rounds.' },
-  wheelbloom: { name: 'Golden Wheelbloom', color: '--gold', value: 160, price: 60, level: 5, blurb: 'Must see every mood twice: 2 naps, 2 jogs, 2 zoomies. Never wilts.' },
-};
-const SEED_KEYS = Object.keys(SEEDS);
-
-const ACHIEVEMENTS = {
-  first:     ['First harvest', 'Pick your first plant.'],
-  mixed:     ['Mixed bed', 'Pick a plant with the +20% mixed-bed bonus.'],
-  night:     ['Night gardener', 'Pick 5 Moonmoss.'],
-  comet:     ['Comet catcher', 'Pick a Comet Pepper.'],
-  bloom:     ['Golden hour', 'Pick a Golden Wheelbloom.'],
-  herbarium: ['Full herbarium', 'Pick every species at least once.'],
-  fullbed:   ['Full bed', 'Unlock all 9 plots.'],
-  week500:   ['Green thumb', 'Score 500 in one week.'],
-};
-
-const QUESTS = [
-  { id: 'trot2',  text: 'Pick 2 Trotbeans',                      n: 2, reward: 40, test: h => h.seed === 'trotbean' },
-  { id: 'zoom1',  text: 'Pick a Zoomflower',                     n: 1, reward: 40, test: h => h.seed === 'zoomflower' },
-  { id: 'moon2',  text: 'Pick 2 Moonmoss',                       n: 2, reward: 40, test: h => h.seed === 'moonmoss' },
-  { id: 'mixed2', text: 'Pick 2 plants with the mixed-bed bonus', n: 2, reward: 50, test: h => h.diverse },
-  { id: 'any4',   text: 'Pick any 4 plants',                     n: 4, reward: 50, test: () => true },
-  { id: 'oak1',   text: 'Pick a Mile Oak',                       n: 1, reward: 70, test: h => h.seed === 'mileoak' },
-];
-
-// ---------- plant rules (pure) ----------
-const newPlant = (seed, round) => ({ seed, plantedRound: round, status: 'growing', growth: 0, age: 0, work: 0,
-  zoomRun: 0, napRun: 0, lastClass: null, lastWork: 0, seen: { nap: 0, jog: 0, zoom: 0 }, cloche: false, ripeRound: null });
-
-function ripen(p, r) { p.status = 'ripe'; p.ripeRound = r; return ['good', `${SEEDS[p.seed].name} is ripe. Pick it within ${RIPE_WINDOW} rounds.`]; }
-function wilt(p, why) {
-  if (p.cloche) {
-    p.cloche = false; p.zoomRun = 0; p.napRun = 0; p.age = 0;
-    return ['good', `The cloche saved ${SEEDS[p.seed].name}. (${why})`];
-  }
-  p.status = 'wilted'; return ['bad', why];
-}
-
-/** Apply one settled round to a plant. Returns a diary entry [kind, text] or null. */
-function applyRound(p, r, work) {
-  if (!p || r <= p.plantedRound) return null;
-  if (p.status === 'ripe') {
-    if (r - p.ripeRound >= RIPE_WINDOW) { p.status = 'rotten'; return ['bad', `${SEEDS[p.seed].name} rotted before it was picked.`]; }
-    return null;
-  }
-  if (p.status !== 'growing') return null;
-  const c = classify(work), last = p.lastClass, lastWork = p.lastWork;
-  p.age++; p.lastClass = c; p.lastWork = work; p.seen[c]++;
-  switch (p.seed) {
-    case 'moonmoss':
-      if (c === 'nap') p.growth++;
-      p.zoomRun = c === 'zoom' ? p.zoomRun + 1 : 0;
-      if (p.zoomRun >= 2) return wilt(p, 'Moonmoss shrivelled after two zoomies rounds.');
-      if (p.growth >= 4) return ripen(p, r);
-      break;
-    case 'trotbean':
-      if (c === 'jog') p.growth++;
-      p.napRun = c === 'nap' ? p.napRun + 1 : 0;
-      if (p.napRun >= 3) return wilt(p, 'Trotbean wilted after three naps in a row.');
-      if (p.growth >= 3) return ripen(p, r);
-      break;
-    case 'zoomflower':
-      if (c === 'zoom') return ripen(p, r);
-      if (p.age >= 9) return wilt(p, 'Zoomflower gave up waiting for zoomies.');
-      break;
-    case 'mileoak':
-      p.work += work;
-      if (p.work >= OAK_WORK) return ripen(p, r);
-      break;
-    case 'comet':
-      if (last === 'nap' && c === 'zoom') return ripen(p, r);
-      if (p.age >= 12) return wilt(p, 'Comet Pepper never saw a nap turn into zoomies.');
-      break;
-    case 'dreamcap':
-      p.napRun = c === 'nap' ? p.napRun + 1 : 0;
-      if (p.napRun >= 3) return ripen(p, r);
-      if (p.age >= 15) return wilt(p, 'Dreamcap never got three naps in a row.');
-      break;
-    case 'twinvine':
-      if (c === 'jog' && last === 'jog' && Math.abs(work - lastWork) <= 100) return ripen(p, r);
-      if (p.age >= 12) return wilt(p, 'Twinvine never found its matching jog.');
-      break;
-    case 'wheelbloom':
-      if (p.seen.nap >= 2 && p.seen.jog >= 2 && p.seen.zoom >= 2) return ripen(p, r);
-      break;
-  }
-  return null;
-}
-
-/** Watering can: one step of help, different per species. */
-function water(p, r) {
-  switch (p.seed) {
-    case 'moonmoss': p.growth++; if (p.growth >= 4) return ripen(p, r); break;
-    case 'trotbean': p.growth++; if (p.growth >= 3) return ripen(p, r); break;
-    case 'mileoak': p.work += 300; if (p.work >= OAK_WORK) return ripen(p, r); break;
-    case 'dreamcap': p.napRun++; if (p.napRun >= 3) return ripen(p, r); break;
-    case 'wheelbloom': { const k = ['nap', 'jog', 'zoom'].sort((a, b) => p.seen[a] - p.seen[b])[0]; p.seen[k]++; if (p.seen.nap >= 2 && p.seen.jog >= 2 && p.seen.zoom >= 2) return ripen(p, r); break; }
-    default: p.age = Math.max(0, p.age - 4); // timed seeds get more time
-  }
-  return ['', `Watered ${SEEDS[p.seed].name}.`];
-}
-
-function progress(p) {
-  if (p.status === 'ripe') return 1;
-  switch (p.seed) {
-    case 'moonmoss': return p.growth / 4;
-    case 'trotbean': return p.growth / 3;
-    case 'zoomflower': return Math.min(.8, .15 + p.age / 9 * .5);
-    case 'mileoak': return Math.min(1, p.work / OAK_WORK);
-    case 'comet': return p.lastClass === 'nap' ? .65 : .2;
-    case 'dreamcap': return p.napRun / 3;
-    case 'twinvine': return p.lastClass === 'jog' ? .6 : .2;
-    case 'wheelbloom': return (Math.min(2, p.seen.nap) + Math.min(2, p.seen.jog) + Math.min(2, p.seen.zoom)) / 6;
-  }
-  return 0;
-}
-function progressText(p) {
-  switch (p.seed) {
-    case 'moonmoss': return `${p.growth}/4 naps`;
-    case 'trotbean': return `${p.growth}/3 jogs`;
-    case 'zoomflower': return `${Math.max(0, 9 - p.age)} rounds to catch zoomies`;
-    case 'mileoak': return `${p.work.toLocaleString()} / ${OAK_WORK.toLocaleString()} work`;
-    case 'comet': return p.lastClass === 'nap' ? 'Primed: zoomies now!' : `Wait for a nap · ${Math.max(0, 12 - p.age)} left`;
-    case 'dreamcap': return `${p.napRun}/3 naps in a row`;
-    case 'twinvine': return p.lastClass === 'jog' ? `Match ${p.lastWork} ±100` : `Needs a jog · ${Math.max(0, 12 - p.age)} left`;
-    case 'wheelbloom': return `nap ${Math.min(2, p.seen.nap)} · jog ${Math.min(2, p.seen.jog)} · zoom ${Math.min(2, p.seen.zoom)}`;
-  }
-  return '';
-}
-
-function neighbours(i, open) {
-  const out = [], col = i % 3;
-  if (col > 0) out.push(i - 1);
-  if (col < 2 && i + 1 < open) out.push(i + 1);
-  if (i - 3 >= 0) out.push(i - 3);
-  if (i + 3 < open) out.push(i + 3);
-  return out;
-}
-function harvestValue(S, i) {
-  const p = S.plots[i];
-  const kinds = new Set(neighbours(i, S.open).map(j => S.plots[j]).filter(n => n && (n.status === 'growing' || n.status === 'ripe') && n.seed !== p.seed).map(n => n.seed));
-  const diverse = kinds.size >= 2;
-  return { value: Math.round(SEEDS[p.seed].value * (diverse ? 1.2 : 1)), diverse };
-}
-const levelOf = xp => LEVELS.filter(t => xp >= t).length;
-
 // ---------- persistence ----------
-const seasonId = () => Math.floor((Date.now() / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
-const blankState = () => ({ v: 2, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season: seasonId(), seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [] });
+const storage = (() => { try { return localStorage; } catch (_) { return null; } })(); // null when storage is blocked
+let saveProblem = null;
 function load(m) {
   if (m === 'demo') return blankState();
-  try { const s = JSON.parse(localStorage.getItem('squeek-garden:live')); if (s && s.v === 2) return s; } catch (_) { /* storage blocked */ }
-  return blankState();
+  const { state: s, report } = loadSave(storage, () => blankState());
+  if (report.source === 'corrupt') saveProblem = 'Your old save could not be read, so a copy was kept and a new garden started.';
+  return s;
 }
 function save() {
-  if (mode !== 'live') return;
-  try { localStorage.setItem('squeek-garden:live', JSON.stringify(state)); } catch (_) { /* storage blocked */ }
+  if (mode === 'live') writeSave(storage, state);
 }
 function addLog(kind, text, round) {
   state.log.unshift({ kind, text, round });
@@ -188,37 +34,21 @@ async function getJSON(url) {
   return res.json();
 }
 
+const ledger = new RoundLedger();
 const live = {
-  rounds: new Map(), // round -> { work, cum }
-  oldest: Infinity, latest: 0, status: null, error: null, lastFetch: 0,
+  rounds: ledger.rounds,
+  get oldest() { return ledger.oldest; },
+  get latest() { return ledger.latest; },
+  status: null, error: null, lastFetch: 0, historyEnded: false, syncing: false,
   currentRound() { return Math.floor((Date.now() / 1000 - GENESIS) / ROUND_S) + 1; },
   roundEndsAt(r) { return (GENESIS + r * ROUND_S) * 1000; },
   questKey() { return Math.floor(Date.now() / 86400000); },
   async init() {
     try { const c = await getJSON(`${API}/core`); GENESIS = +c.configuration.genesisTimestamp || GENESIS; } catch (e) { this.error = e; }
   },
-  ingest(events) {
-    for (const e of events) {
-      if (e.type !== 'system.settlement_completed') continue;
-      const p = e.payload, prev = +p.previousSettledThroughRound, thr = +p.settledThroughRound, work = +p.workAdded;
-      // One settlement normally closes one round; spread a rare multi-round batch evenly.
-      const n = thr - prev;
-      for (let r = prev + 1; r <= thr; r++) {
-        const share = n === 1 ? work : (+p.activeRoundCount ? Math.round(work / n) : 0);
-        this.rounds.set(r, { work: share, cum: r === thr && p.cumulativeWork != null ? +p.cumulativeWork : null });
-        this.oldest = Math.min(this.oldest, r);
-        this.latest = Math.max(this.latest, r);
-      }
-    }
-  },
   async refreshRounds(needFrom) {
-    let cursor = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const d = await getJSON(`${API}/events?limit=100&category=protocol${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
-      this.ingest(d.events || []);
-      if (!d.nextCursor || this.oldest <= needFrom) break;
-      cursor = d.nextCursor;
-    }
+    const { exhausted } = await fetchHistory({ getJSON, url: `${API}/events?limit=100&category=protocol`, ledger, needFrom });
+    this.historyEnded = exhausted;
     this.lastFetch = Date.now();
   },
   async refreshStatus() {
@@ -268,12 +98,7 @@ function unlock(id) {
 }
 
 function rollPeriods() {
-  const id = seasonId();
-  if (state.season !== id) {
-    state.best = Math.max(state.best, state.seasonScore);
-    state.season = id; state.seasonScore = 0;
-    addLog('good', 'A new week started. Season score reset.', null);
-  }
+  if (rollSeason(state, seasonId())) addLog('good', 'A new week started. Season score reset.', null);
   const qk = src.questKey();
   if (!state.quest || state.quest.key !== qk) {
     const q = QUESTS[((qk % QUESTS.length) + QUESTS.length) % QUESTS.length];
@@ -284,14 +109,21 @@ function rollPeriods() {
 function processRounds() {
   if (!src.latest) return;
   if (state.processed === null) { state.processed = src.latest; addLog('', `Garden opened at round ${src.latest + 1}. You have 60 pips to spend on seeds.`, src.latest + 1); return; }
-  let skipped = 0;
+  src.syncing = false;
+  let missing = 0;
   for (let r = state.processed + 1; r <= src.latest; r++) {
-    const rd = src.rounds.get(r);
-    if (!rd) { if (r < src.oldest) { skipped++; state.processed = r; continue; } break; }
+    let rd = src.rounds.get(r);
+    if (!rd) {
+      if (!src.historyEnded) { src.syncing = true; break; } // wait for the history instead of guessing
+      rd = { work: null }; missing++;
+    }
+    if (rd.batch && r === rd.batch.first && state.plots.some(p => p && p.status === 'growing')) {
+      addLog('', `Rounds ${rd.batch.first}-${rd.batch.last} settled together, so their work per round is unknown. Growing plants waited.`, r);
+    }
     state.plots.forEach((p, i) => { const ev = applyRound(p, r, rd.work); if (ev) addLog(ev[0], `Plot ${i + 1}: ${ev[1]}`, r); });
     state.processed = r;
   }
-  if (skipped) addLog('bad', `${skipped} old rounds were past the API history and were skipped.`, null);
+  if (missing) addLog('bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
 }
 
 function harvest(i) {
@@ -422,6 +254,7 @@ function renderStrip() {
   svg.innerHTML = last.map(([r, d], i) => {
     const x = i * bw + 2, w = bw - 4;
     if (!d) return `<rect x="${x}" y="78" width="${w}" height="2" style="fill:var(--line)"/>`;
+    if (d.work === null) return `<rect x="${x}" y="52" width="${w}" height="30" style="fill:var(--line)"><title>Round ${r}: settled in a batch, work per round unknown</title></rect>`;
     const c = classify(d.work), h = c === 'nap' ? 4 : Math.max(6, d.work / max * 78);
     const label = i % 6 === 5 ? `<text x="${x + w / 2}" y="104" text-anchor="middle" style="fill:var(--muted);font:16px var(--mono)">${r}</text>` : '';
     return `<rect x="${x}" y="${82 - h}" width="${w}" height="${h}" style="fill:var(--m-${c})"><title>Round ${r}: ${d.work} work (${CLASS_NAME[c]})</title></rect>${label}`;
@@ -431,6 +264,8 @@ function renderStrip() {
 function renderWheel() {
   const st = src.status, pill = $('wheelPill'), cur = src.currentRound();
   if (!st) { pill.className = 'pill'; pill.textContent = live.error && mode === 'live' ? 'Wheel data is unreachable. Try Demo.' : 'Connecting…'; }
+  else if (mode === 'live' && live.error) { pill.className = 'pill'; pill.textContent = 'Wheel data paused, retrying'; }
+  else if (mode === 'live' && live.syncing) { pill.className = 'pill'; pill.textContent = 'Catching up on rounds'; }
   else if (!st.online) { pill.className = 'pill'; pill.textContent = 'Wheel sensor offline'; }
   else if (st.running) { pill.className = 'pill run'; pill.textContent = `Running at ${Math.round(st.rpm)} rpm`; }
   else { pill.className = 'pill nap'; pill.textContent = 'Napping'; }
@@ -612,13 +447,34 @@ function setMode(m) {
   else syncLive();
   render();
 }
+$('bExport').onclick = () => {
+  const url = URL.createObjectURL(new Blob([exportSave(state)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = `squeek-garden-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+$('bImport').onclick = () => $('fImport').click();
+$('fImport').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const next = parseImport(await file.text());
+    if (!storage) throw new Error('This browser is blocking saved data.');
+    applyImport(storage, next);
+    if (mode !== 'live') setMode('live');
+    state = next; selected = null; armed = null;
+    rollPeriods(); processRounds(); save(); render();
+    toast('Save imported. Your previous garden was kept as a backup.');
+  } catch (err) { toast(err.message); }
+};
 $('mLive').onclick = () => setMode('live');
 $('mDemo').onclick = () => setMode('demo');
 
 async function syncLive(force) {
   try {
     const need = state.processed === null ? live.currentRound() - 2 : state.processed + 1;
-    if (force || live.latest < live.currentRound() - 1 || need < live.oldest) {
+    if (force || live.latest < live.currentRound() - 1 || ledger.firstGap(need) !== null) {
       if (Date.now() - live.lastFetch > 20000 || force) await live.refreshRounds(need);
     }
     await live.refreshStatus();
@@ -639,5 +495,6 @@ async function syncLive(force) {
 rollPeriods();
 applyIcons();
 render();
+if (saveProblem) toast(saveProblem);
 requestAnimationFrame(drawScene);
 })();

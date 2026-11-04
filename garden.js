@@ -380,10 +380,15 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let hintTimer = null;
-const DEFAULT_HINT = 'Pick a seed or tool, then tap a plot.';
+const hintText = () => {
+  if (selected === 'water') return 'Tap a growing plant to water it.';
+  if (selected === 'cloche') return 'Tap a growing plant to cover it.';
+  if (selected) return SEEDS[selected].blurb;
+  return 'Pick a packet or tool, then tap a plot.';
+};
 function flashHint(text) {
   const el = $('plotHint'); el.textContent = text; el.classList.add('warn');
-  clearTimeout(hintTimer); hintTimer = setTimeout(() => { el.textContent = DEFAULT_HINT; el.classList.remove('warn'); }, 2500);
+  clearTimeout(hintTimer); hintTimer = setTimeout(() => { el.classList.remove('warn'); el.textContent = hintText(); }, 2500);
 }
 let toastTimer = null;
 function toast(text) {
@@ -406,6 +411,7 @@ function plantArt(seed, frac, status) {
 }
 const icon = (name, cls = 'ico') => `<img class="${cls}" src="${Pixel.sprite(name)}" alt="">`;
 const MOOD_ICON = { nap: 'moon', jog: 'paw', zoom: 'bolt' };
+const SEED_FEEDS = { moonmoss: 'Naps', trotbean: 'Jogs', zoomflower: 'Zoomies', mileoak: 'All work', comet: 'Nap, then zoomies', dreamcap: 'Naps in a row', twinvine: 'Even jogs', wheelbloom: 'Every mood' };
 
 
 function renderStrip() {
@@ -424,11 +430,11 @@ function renderStrip() {
 
 function renderWheel() {
   const st = src.status, pill = $('wheelPill'), cur = src.currentRound();
-  if (!st) { pill.className = 'pill'; pill.textContent = live.error && mode === 'live' ? 'API unreachable · try Demo' : 'Connecting…'; }
+  if (!st) { pill.className = 'pill'; pill.textContent = live.error && mode === 'live' ? 'Wheel data is unreachable. Try Demo.' : 'Connecting…'; }
   else if (!st.online) { pill.className = 'pill'; pill.textContent = 'Wheel sensor offline'; }
-  else if (st.running) { pill.className = 'pill run'; pill.textContent = `Running · ${Math.round(st.rpm)} rpm`; }
+  else if (st.running) { pill.className = 'pill run'; pill.textContent = `Running at ${Math.round(st.rpm)} rpm`; }
   else { pill.className = 'pill nap'; pill.textContent = 'Napping'; }
-  $('sceneLabel').textContent = st ? (st.running ? `Squeektoshi · ${Math.round(st.rpm)} rpm` : 'Squeektoshi is napping') : 'Looking for the wheel…';
+  document.body.dataset.sky = st && st.running ? 'day' : 'night';
   $('rNum').textContent = `#${cur}`;
   const left = Math.max(0, (src.roundEndsAt(cur) - Date.now()) / 1000);
   $('rLeft').textContent = mode === 'demo' ? `${left.toFixed(0)}s` : `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
@@ -444,34 +450,39 @@ function render() {
   const lv = levelOf(state.xp), nextXp = LEVELS[lv];
   $('sLevel').textContent = lv;
   $('xpBar').style.width = nextXp ? `${Math.round((state.xp - LEVELS[lv - 1]) / (nextXp - LEVELS[lv - 1]) * 100)}%` : '100%';
-  $('xpText').textContent = nextXp ? `${state.xp} / ${nextXp} xp` : `${state.xp} xp · max level`;
+  $('xpText').textContent = nextXp ? `${state.xp} / ${nextXp} xp` : `${state.xp} xp, max level`;
   $('sPips').textContent = state.pips;
 
   $('plots').innerHTML = state.plots.map((p, i) => {
     if (i >= state.open) {
       const price = PLOT_PRICES[i - START_PLOTS], nextToBuy = i === state.open;
-      return `<div class="plot locked">${nextToBuy ? `<button class="buyplot" data-buy="plot">Dig plot · ${price} pips</button>` : '<span class="pstat">Locked</span>'}</div>`;
+      return `<div class="plot locked">${nextToBuy ? `<button class="buyplot" data-buy="plot">Dig plot, ${price} pips</button>` : '<span class="pstat">Locked</span>'}</div>`;
     }
-    if (!p) return `<button class="plot empty" data-i="${i}" aria-label="Plot ${i + 1}, empty"><span class="pname">Plot ${i + 1}</span><span class="pstat">${selected && SEEDS[selected] ? `Plant ${esc(SEEDS[selected].name)} · ${SEEDS[selected].price}` : 'Empty soil'}</span></button>`;
+    if (!p) {
+      const sd = SEEDS[selected];
+      return `<button class="plot empty" data-i="${i}" aria-label="Plot ${i + 1}, empty${sd ? `, plant ${esc(sd.name)}` : ''}">${sd ? plantArt(selected, 1, 'ripe').replace('class="spr"', 'class="spr ghost"') : '<span></span>'}${sd ? `<span class="plate"><span class="pstat">${sd.price} pips</span></span>` : ''}</button>`;
+    }
     const sd = SEEDS[p.seed], f = progress(p);
     let stat, extra = '';
-    if (p.status === 'ripe') { const { value, diverse } = harvestValue(state, i); stat = `Ripe · pick for ${value}${diverse ? ' (mixed)' : ''}`; extra = `<span class="pstat">rots in ${RIPE_WINDOW - (state.processed - p.ripeRound)} rounds</span>`; }
-    else if (p.status === 'wilted') stat = 'Wilted · tap to clear';
-    else if (p.status === 'rotten') stat = 'Rotten · tap to clear';
-    else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : `<span class="pstat">planted round ${p.plantedRound}</span>`; }
-    return `<button class="plot ${p.status}${p.cloche ? ' covered' : ''}" data-i="${i}" aria-label="Plot ${i + 1}, ${esc(sd.name)}, ${esc(stat)}">${p.cloche ? icon('dome', 'dome') : ''}${p.status === 'ripe' ? icon('sparkle', 'sparkle') : ''}${plantArt(p.seed, f, p.status)}<span class="pname">${esc(sd.name)}</span><span class="pstat">${esc(stat)}</span>${p.status === 'growing' ? `<span class="gbar"><i style="width:${Math.round(f * 100)}%"></i></span>` : ''}${extra}</button>`;
+    if (p.status === 'ripe') { const { value, diverse } = harvestValue(state, i); stat = `Ripe, pick for ${value}${diverse ? ' (mixed +20%)' : ''}`; extra = `<span class="pstat">rots in ${RIPE_WINDOW - (state.processed - p.ripeRound)} rounds</span>`; }
+    else if (p.status === 'wilted') stat = 'Wilted, tap to clear';
+    else if (p.status === 'rotten') stat = 'Rotten, tap to clear';
+    else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : ''; }
+    return `<button class="plot ${p.status}${p.cloche ? ' covered' : ''}" data-i="${i}" aria-label="Plot ${i + 1}, ${esc(sd.name)}, ${esc(stat)}">${p.cloche ? icon('dome', 'dome') : ''}${p.status === 'ripe' ? icon('sparkle', 'sparkle') : ''}${plantArt(p.seed, f, p.status)}<span class="plate"><span class="pname">${esc(sd.name)}</span><span class="pstat">${esc(stat)}</span>${p.status === 'growing' ? `<span class="gbar"><i style="width:${Math.round(f * 100)}%"></i></span>` : ''}${extra}</span></button>`;
   }).join('');
+  $('plots').classList.toggle('planting', !!SEEDS[selected]);
+  if (!$('plotHint').classList.contains('warn')) $('plotHint').textContent = hintText();
 
   $('seeds').innerHTML = SEED_KEYS.map(k => {
     const s = SEEDS[k], locked = s.level > lv;
-    return `<button class="seed${locked ? ' locked' : ''}" data-seed="${k}" aria-pressed="${selected === k}" ${locked ? 'disabled' : ''}>${plantArt(k, 1, 'ripe')}<span><b>${s.name}<span>${locked ? `Level ${s.level}` : `${s.price} pips → ${s.value}`}</span></b><small>${s.blurb}</small></span></button>`;
+    return `<button class="seed${locked ? ' locked' : ''}" data-seed="${k}" title="${esc(s.blurb)}" aria-pressed="${selected === k}" ${locked ? 'disabled' : ''}><span class="band band-${s.color.slice(2)}">${SEED_FEEDS[k]}</span>${plantArt(k, 1, 'ripe')}<b>${s.name}</b><small>${locked ? `Unlocks at level ${s.level}` : `${s.price} pips, pays ${s.value}`}</small></button>`;
   }).join('');
   $('tWater').setAttribute('aria-pressed', selected === 'water');
   $('tCloche').setAttribute('aria-pressed', selected === 'cloche');
   $('tCloche').querySelector('b').textContent = `Glass cloche ×${state.cloches}`;
 
   const q = state.quest, qd = q && QUESTS.find(x => x.id === q.id);
-  $('quest').innerHTML = qd ? `<b>${esc(qd.text)}</b><span>${q.done ? 'Done ✓' : `${q.progress}/${qd.n} · +${qd.reward} pips`}</span>` : '';
+  $('quest').innerHTML = qd ? `<b>${esc(qd.text)}</b><span>${q.done ? 'Done ✓' : `${q.progress}/${qd.n}, +${qd.reward} pips`}</span>` : '';
   $('quest').classList.toggle('done', !!(q && q.done));
 
   $('sSeason').textContent = state.seasonScore.toLocaleString();
@@ -485,11 +496,20 @@ function render() {
 
 // ---------- scene: 160x48 pixels; the wheel spins at the hamster's real rpm ----------
 const scene = $('scene'), sctx = scene.getContext('2d');
-const SW = 160, SH = 48, GROUND = 40, PC = Pixel.C;
-scene.width = SW; scene.height = SH;
+const SH = 56, GROUND = 48, PC = Pixel.C;
+let SW = 160, WX = 138, STARS = [];
+function sizeScene() {
+  const w = document.documentElement.clientWidth, px = w < 1700 ? 3 : 4;
+  SW = Math.ceil(w / px);
+  WX = Math.min(SW - 18, Math.floor((w + 1180) / 2 / px) - 20); // the wheel lines up with the page's right edge
+  STARS = Array.from({ length: Math.ceil(SW / 5) }, (_, i) => [(i * 53 + 7) % SW, (i * 29) % 36]);
+  scene.width = SW; scene.height = SH;
+  scene.style.width = `${SW * px}px`; scene.style.height = `${SH * px}px`;
+}
+sizeScene();
+addEventListener('resize', sizeScene);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let angle = 0, lastT = performance.now(), stepT = 0, runFrame = 0;
-const STARS = Array.from({ length: 30 }, (_, i) => [(i * 53 + 7) % SW, (i * 29) % 28]);
 const hamCache = new Map();
 const ham = (kind, f) => { const k = kind + f; if (!hamCache.has(k)) hamCache.set(k, Pixel.hamsterGrid(kind, f)); return hamCache.get(k); };
 function dot(x, y, c) { sctx.fillStyle = c; sctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
@@ -512,20 +532,20 @@ function drawScene(t) {
 
   // sky: day while he runs, night while he naps (stepped bands, no smooth gradients)
   if (running) {
-    band(0, 10, '#6ec3ef'); band(10, 9, '#8fd3f4'); band(19, 9, '#b4e3f8'); band(28, 12, '#d4f1ff');
-    sdisc(20, 10, 5, PC.yellow); dot(18, 8, PC.white); dot(19, 8, PC.white);
-    for (let a = 0; a < 8; a++) { const r = a * Math.PI / 4 + (still ? 0 : t / 5000); dot(20 + Math.cos(r) * 8, 10 + Math.sin(r) * 8, PC.gold); }
+    band(0, 18, '#6ec3ef'); band(18, 9, '#8fd3f4'); band(27, 9, '#b4e3f8'); band(36, 12, '#d4f1ff');
+    sdisc(WX - 30, 14, 5, PC.yellow); dot(WX - 32, 12, PC.white); dot(WX - 31, 12, PC.white);
+    for (let a = 0; a < 8; a++) { const r = a * Math.PI / 4 + (still ? 0 : t / 5000); dot(WX - 30 + Math.cos(r) * 8, 14 + Math.sin(r) * 8, PC.gold); }
     const drift = still ? 0 : (t / 400) % (SW + 20);
-    cloud(((50 + drift) % (SW + 20)) - 20, 9); cloud(((100 + drift * .7) % (SW + 20)) - 20, 15);
+    cloud(((50 + drift) % (SW + 20)) - 20, 11); cloud(((100 + drift * .7) % (SW + 20)) - 20, 19);
   } else {
-    band(0, 12, '#141a3a'); band(12, 10, '#1d2752'); band(22, 18, '#28366b');
+    band(0, 20, '#141a3a'); band(20, 10, '#1d2752'); band(30, 18, '#28366b');
     for (const [x, y] of STARS) if (still || Math.sin(t / 500 + x * 1.7) > -.5) dot(x, y, x % 3 ? '#9cc3ff' : PC.white);
-    sdisc(20, 10, 5, PC.moon); sdisc(22, 8, 4, '#141a3a');
+    sdisc(WX - 30, 14, 5, PC.moon); sdisc(WX - 28, 12, 4, '#141a3a');
   }
   // two layers of hills
   for (let x = 0; x < SW; x++) {
-    const far = 27 + Math.round(Math.sin(x / 19 + 2) * 3);
-    const near = 32 + Math.round(Math.sin(x / 12) * 2.5 + Math.sin(x / 5.3 + 1) * 1);
+    const far = 35 + Math.round(Math.sin(x / 19 + 2) * 3);
+    const near = 40 + Math.round(Math.sin(x / 12) * 2.5 + Math.sin(x / 5.3 + 1) * 1);
     sctx.fillStyle = running ? '#7cc576' : '#2e4f5e'; sctx.fillRect(x, far, 1, GROUND - far);
     sctx.fillStyle = running ? '#4da55a' : '#24414c'; sctx.fillRect(x, near, 1, GROUND - near);
     if (running && x % 9 === 3) dot(x, near, '#8fdc5e');
@@ -534,20 +554,21 @@ function drawScene(t) {
   band(GROUND - 1, 2, running ? PC.leaf : '#2f6b45');
   for (let x = 0; x < SW; x += 3) dot(x, GROUND - 2, running ? PC.leafLight : '#3f8a5a');
   band(GROUND + 1, SH - GROUND - 1, running ? PC.soil : '#4a2f26');
-  for (let y = GROUND + 2; y < SH; y++) for (let x = (y % 2) * 2; x < SW; x += 4) dot(x, y, running ? PC.soilDark : '#33201b');
+  band(SH - 3, 3, running ? '#6b4130' : '#2e1e1f'); // the same earth the page continues in
+  for (let y = GROUND + 2; y < SH - 2; y++) for (let x = (y % 2) * 2; x < SW; x += 4) dot(x, y, running ? PC.soilDark : '#33201b');
 
   // the player's plots as a row of plants
-  const n = state.open, step = Math.min(13, 108 / n);
+  const n = state.open, step = Math.min(14, (WX - 24) / n), x0 = WX - 24 - n * step;
   state.plots.slice(0, n).forEach((p, i) => {
     if (!p) return;
     const dead = p.status === 'wilted' || p.status === 'rotten', f = progress(p);
     const name = dead ? 'wilted' : p.status === 'ripe' || f >= .75 ? p.seed : f >= .34 ? 'young' : 'sprout';
-    blit(Pixel.spriteGrid(name), 4 + i * step, GROUND - 14);
-    if (p.status === 'ripe' && !still && Math.floor(t / 300 + i) % 2) dot(4 + i * step + 13, GROUND - 13, PC.yellow);
+    blit(Pixel.spriteGrid(name), x0 + i * step, GROUND - 14);
+    if (p.status === 'ripe' && !still && Math.floor(t / 300 + i) % 2) dot(x0 + i * step + 13, GROUND - 13, PC.yellow);
   });
 
   // wheel on its stand
-  const cx = 138, cy = 22, R = 15;
+  const cx = WX, cy = GROUND - 18, R = 15;
   sline(cx, cy, cx - 8, GROUND, PC.woodDark); sline(cx + 1, cy, cx - 7, GROUND, PC.wood);
   sline(cx, cy, cx + 8, GROUND, PC.woodDark); sline(cx - 1, cy, cx + 7, GROUND, PC.wood);
   for (let a = 0; a < 360; a += 2) {
@@ -577,7 +598,7 @@ $('seeds').addEventListener('click', e => { const b = e.target.closest('.seed');
 $('tWater').onclick = () => { selected = selected === 'water' ? null : 'water'; render(); };
 function applyIcons() {
   document.querySelectorAll('[data-icon]').forEach(el => { el.src = Pixel.sprite(el.dataset.icon); });
-  document.documentElement.style.setProperty('--soil', `url(${Pixel.sprite('soil')})`);
+  $('fav').href = Pixel.sprite('moonmoss');
 }
 $('tCloche').onclick = () => { if (!state.cloches) { flashHint('Buy a cloche first.'); return; } selected = selected === 'cloche' ? null : 'cloche'; render(); };
 $('bCloche').onclick = buyCloche;

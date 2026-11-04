@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Squeek Garden guide</title>
+<meta name="description" content="How to play Squeek Garden: read the hamster, plant for his next mood, pick what ripens.">
+<link rel="icon" id="fav">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jersey+15&family=Pixelify+Sans:wght@600;700&family=VT323&display=swap">
+<link rel="stylesheet" href="../garden.css">
+</head>
+<body data-sky="night" class="guide-page">
+<div class="wrap">
+  <header class="guide-top">
+    <h1>How to play</h1>
+    <a class="guidelink" href="../">Back to the garden</a>
+  </header>
+
+  <section class="panel">
+    <h2>The loop</h2>
+    <ol class="steps">
+      <li><b>Read the hamster.</b> Each 10-minute round ends as a nap, a jog or zoomies. The bars on the play screen show the last 24.</li>
+      <li><b>Plant for his next mood.</b> The colored band on a packet says what feeds it. Pick a packet, then tap a plot. Seeds react from the next round.</li>
+      <li><b>Pick what ripens.</b> Tap a ripe plant within 12 rounds or it rots. Plants keep growing while the tab is closed.</li>
+      <li><b>Grow the garden.</b> Pips buy seeds, tools and plots. Points raise your level, which unlocks rarer seeds.</li>
+    </ol>
+    <p class="note">A real round takes 10 minutes. Switch to Demo on the play screen to see a full cycle in about a minute.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Seeds</h2>
+    <table class="seedtable">
+      <thead><tr><th>Seed</th><th>Grows on</th><th>Ripe when</th><th>Fails when</th><th>Points</th></tr></thead>
+      <tbody>
+        <tr><td><img class="spr" data-sprite="moonmoss" alt="">Moonmoss</td><td>Nap rounds</td><td>4 naps</td><td>2 zoomies rounds in a row</td><td>30</td></tr>
+        <tr><td><img class="spr" data-sprite="trotbean" alt="">Trotbean</td><td>Jog rounds</td><td>3 jogs</td><td>3 naps in a row</td><td>35</td></tr>
+        <tr><td><img class="spr" data-sprite="zoomflower" alt="">Zoomflower</td><td>Zoomies rounds</td><td>First zoomies round</td><td>No zoomies within 9 rounds</td><td>70</td></tr>
+        <tr><td><img class="spr" data-sprite="mileoak" alt="">Mile Oak</td><td>Every unit of work</td><td>3,000 total work</td><td>Never</td><td>100</td></tr>
+        <tr><td><img class="spr" data-sprite="comet" alt="">Comet Pepper (level 2)</td><td>A nap, then zoomies</td><td>That exact sequence</td><td>12 rounds pass</td><td>95</td></tr>
+        <tr><td><img class="spr" data-sprite="dreamcap" alt="">Dreamcap (level 3)</td><td>Naps in a row</td><td>3 naps in a row</td><td>15 rounds pass</td><td>85</td></tr>
+        <tr><td><img class="spr" data-sprite="twinvine" alt="">Twinvine (level 4)</td><td>Back-to-back jogs</td><td>Two jogs within 100 work</td><td>12 rounds pass</td><td>90</td></tr>
+        <tr><td><img class="spr" data-sprite="wheelbloom" alt="">Golden Wheelbloom (level 5)</td><td>Every mood</td><td>2 naps, 2 jogs, 2 zoomies</td><td>Never</td><td>160</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Good to know</h2>
+    <ul class="steps">
+      <li><b>Mixed beds pay more.</b> A plant picked with two or more other species next to it pays +20%.</li>
+      <li><b>Watering can.</b> Gives a growing plant one step of help, then refills after 6 rounds.</li>
+      <li><b>Glass cloche.</b> Saves a plant from the next thing that would wilt it.</li>
+      <li><b>Seasons.</b> Scores reset every Monday at 00:00 UTC. Quests change daily. Your garden is saved in this browser.</li>
+    </ul>
+  </section>
+
+  <footer class="foot">
+    Round data comes from Squeekchain's public API, the same numbers SqueekCore records on Sepolia. Naps score too: the garden never asks him to run.
+    <a href="https://x.com/squeekchain" rel="noopener">Watch the livestream</a>
+    <a href="https://github.com/tuannhm04/squeek-garden" rel="noopener">Source on GitHub</a>
+  </footer>
+</div>
+<script src="../pixel.js"></script>
+<script>
+document.querySelectorAll('[data-sprite]').forEach(el => { el.src = Pixel.sprite(el.dataset.sprite); });
+document.getElementById('fav').href = Pixel.sprite('moonmoss');
+</script>
+</body>
+</html>

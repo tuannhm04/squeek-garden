@@ -1,4 +1,4 @@
-import { ACHIEVEMENTS, CLASS_NAME, LEVELS, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS,
+import { ACHIEVEMENTS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, LEVELS, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS,
   addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, rollPeriods as rollStatePeriods, seasonId, settleRounds } from './engine.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
@@ -215,6 +215,21 @@ function renderWheel() {
   $('waterState').textContent = wl ? `refills in ${wl} round${wl > 1 ? 's' : ''}` : 'ready';
 }
 
+function renderDaily() {
+  const items = state.daily ? state.daily.items : [];
+  const c = state.combo, cur = src.currentRound();
+  const live = c && cur - c.lastRound <= COMBO_WINDOW;
+  const next = live ? Math.round(COMBO_BONUS[Math.min(c.count + 1, COMBO_BONUS.length - 1)] * 100) : 0;
+  $('dailySummary').textContent = `Daily challenges, ${items.filter(x => x.done).length} of ${items.length} done${live && c.count >= 2 ? `, combo of ${c.count}` : ''}`;
+  $('dailyList').innerHTML = items.map(x => {
+    const d = DAILY_CHALLENGES.find(y => y.id === x.id);
+    return `<li class="${x.done ? 'done' : ''}"><span>${esc(d.text)}</span><b>${x.done ? 'Done ✓' : `${x.progress}/${d.n}, +${d.reward} pips`}</b></li>`;
+  }).join('');
+  $('comboNote').textContent = live
+    ? `Pick a plant other than ${SEEDS[c.lastSeed].name} by round ${c.lastRound + COMBO_WINDOW} for ${next}% extra pips.`
+    : `Pick different plants within ${COMBO_WINDOW} rounds of each other for up to 15% extra pips. Points stay the same.`;
+}
+
 function render() {
   renderWheel(); renderStrip();
   const lv = levelOf(state.xp), nextXp = LEVELS[lv];
@@ -254,6 +269,7 @@ function render() {
   const q = state.quest, qd = q && QUESTS.find(x => x.id === q.id);
   $('quest').innerHTML = qd ? `<b>${esc(qd.text)}</b><span>${q.done ? 'Done ✓' : `${q.progress}/${qd.n}, +${qd.reward} pips`}</span>` : '';
   $('quest').classList.toggle('done', !!(q && q.done));
+  renderDaily();
 
   $('sSeason').textContent = state.seasonScore.toLocaleString();
   $('sBest').textContent = Math.max(state.best, state.seasonScore).toLocaleString();

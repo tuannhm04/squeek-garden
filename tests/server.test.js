@@ -326,6 +326,45 @@ test('rounds lost beyond the paging limit count as unknown, not as naps', async 
   assert.equal(after.plots[0].age, 1, 'only the one round on record counts');
 });
 
+test('a new garden gets today\'s challenges from the server', async () => {
+  const env = playEnv(), c = await player(env);
+  const { state } = (await c.call('/api/garden')).body;
+  assert.equal(state.daily.items.length, 3);
+  assert.equal(state.daily.day, Math.floor(NOW / 86400000));
+});
+
+test('repeating an action id cannot earn a challenge twice', async () => {
+  const env = playEnv(), c = await player(env);
+  const today = (await c.call('/api/garden')).body.state.daily.items.map(x => x.id);
+  const a = action({ type: 'plant', plot: 0, seed: 'moonmoss' });
+  const first = await c.call('/api/action', a), second = await c.call('/api/action', a);
+  assert.equal(second.body.repeated, true);
+  assert.deepEqual(second.body.state.daily, first.body.state.daily);
+  assert.equal(second.body.state.pips, first.body.state.pips);
+  assert.ok(today.length === 3);
+});
+
+test('a browser cannot claim a challenge or a combo in its request', async () => {
+  const env = playEnv(), c = await player(env);
+  const res = await c.call('/api/action', action({ type: 'buyCloche', daily: { items: [] }, combo: { count: 99 }, pips: 9999 }));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.state.pips, 35);
+  assert.equal(res.body.state.combo, null);
+  assert.equal(res.body.state.daily.items.length, 3);
+});
+
+test('a garden saved before challenges picks them up without losing anything', async () => {
+  const env = playEnv(), c = await player(env);
+  const row = sqlOne(env, 'SELECT state FROM gardens');
+  const old = JSON.parse(row.state);
+  delete old.daily; delete old.combo;
+  old.pips = 123;
+  env.sqlite.prepare('UPDATE gardens SET state = ?').run(JSON.stringify(old));
+  const { state } = (await c.call('/api/garden')).body;
+  assert.equal(state.pips, 123);
+  assert.equal(state.daily.items.length, 3);
+});
+
 test('Squeekchain being down does not stop play', async () => {
   const env = playEnv(), c = await player(env);
   env.fetchUpstream = async () => { throw new Error('offline'); };

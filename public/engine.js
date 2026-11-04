@@ -173,3 +173,143 @@ export function rollSeason(S, id) {
   S.season = id; S.seasonScore = 0;
   return true;
 }
+
+// ---------- diary, periods and rounds ----------
+export function addLog(S, kind, text, round) {
+  S.log.unshift({ kind, text, round });
+  S.log.length = Math.min(S.log.length, 60);
+}
+
+function unlock(S, id, toasts) {
+  if (S.ach[id]) return;
+  S.ach[id] = true;
+  addLog(S, 'good', `Achievement: ${ACHIEVEMENTS[id][0]}!`, null);
+  toasts.push(`Achievement unlocked: ${ACHIEVEMENTS[id][0]}`);
+}
+
+export function rollPeriods(S, season, questKey) {
+  if (rollSeason(S, season)) addLog(S, 'good', 'A new week started. Season score reset.', null);
+  if (!S.quest || S.quest.key !== questKey) {
+    const q = QUESTS[((questKey % QUESTS.length) + QUESTS.length) % QUESTS.length];
+    S.quest = { key: questKey, id: q.id, progress: 0, done: false };
+  }
+}
+
+/** Plays every round the garden has not seen yet. Returns true when it stopped to wait for missing history. */
+export function settleRounds(S, rounds, latest, historyEnded = false) {
+  if (!latest) return false;
+  if (S.processed === null) { S.processed = latest; addLog(S, '', `Garden opened at round ${latest + 1}. You have 60 pips to spend on seeds.`, latest + 1); return false; }
+  let missing = 0, waiting = false;
+  for (let r = S.processed + 1; r <= latest; r++) {
+    let rd = rounds.get(r);
+    if (!rd) {
+      if (!historyEnded) { waiting = true; break; } // wait for the history instead of guessing
+      rd = { work: null }; missing++;
+    }
+    if (rd.batch && r === rd.batch.first && S.plots.some(p => p && p.status === 'growing')) {
+      addLog(S, '', `Rounds ${rd.batch.first}-${rd.batch.last} settled together, so their work per round is unknown. Growing plants waited.`, r);
+    }
+    S.plots.forEach((p, i) => { const ev = applyRound(p, r, rd.work); if (ev) addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, r); });
+    S.processed = r;
+  }
+  if (missing) addLog(S, 'bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
+  return waiting;
+}
+
+// ---------- player actions ----------
+function harvestPlot(S, i, cur) {
+  const p = S.plots[i], toasts = [];
+  const { value, diverse } = harvestValue(S, i);
+  const lvBefore = levelOf(S.xp);
+  S.seasonScore += value; S.pips += value; S.xp += value; S.harvests++;
+  S.best = Math.max(S.best, S.seasonScore);
+  S.herb[p.seed] = (S.herb[p.seed] || 0) + 1;
+  addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}.`, cur);
+  S.plots[i] = null;
+
+  const q = S.quest, qd = q && QUESTS.find(x => x.id === q.id);
+  if (qd && !q.done && qd.test({ seed: p.seed, diverse })) {
+    q.progress++;
+    if (q.progress >= qd.n) { q.done = true; S.pips += qd.reward; addLog(S, 'good', `Quest done: ${qd.text}. +${qd.reward} pips.`, cur); toasts.push(`Quest done! +${qd.reward} pips`); }
+  }
+  unlock(S, 'first', toasts);
+  if (diverse) unlock(S, 'mixed', toasts);
+  if ((S.herb.moonmoss || 0) >= 5) unlock(S, 'night', toasts);
+  if (p.seed === 'comet') unlock(S, 'comet', toasts);
+  if (p.seed === 'wheelbloom') unlock(S, 'bloom', toasts);
+  if (SEED_KEYS.every(k => S.herb[k])) unlock(S, 'herbarium', toasts);
+  if (S.seasonScore >= 500) unlock(S, 'week500', toasts);
+  const lv = levelOf(S.xp);
+  if (lv > lvBefore) {
+    const fresh = SEED_KEYS.filter(k => SEEDS[k].level === lv).map(k => SEEDS[k].name);
+    addLog(S, 'good', `Level ${lv}!${fresh.length ? ` New seed: ${fresh.join(', ')}.` : ''}`, cur);
+    toasts.push(`Level ${lv}!${fresh.length ? ` ${fresh.join(', ')} unlocked` : ''}`);
+  }
+  return { toasts, gained: value };
+}
+
+/** Applies one action, checking every rule. Returns { error } or { toasts, gained? }. Input may come from anyone. */
+export function doAction(S, a, cur) {
+  const done = { toasts: [] };
+  if (!a || typeof a.type !== 'string') return { error: 'Unknown action.' };
+  if (a.type === 'buyPlot') {
+    const price = PLOT_PRICES[S.open - START_PLOTS];
+    if (price == null) return { error: 'All plots are already dug.' };
+    if (S.pips < price) return { error: `A new plot costs ${price} pips.` };
+    S.pips -= price; S.open++;
+    addLog(S, 'good', `Dug a new plot (−${price} pips). You now have ${S.open}.`, cur);
+    if (S.open === MAX_PLOTS) unlock(S, 'fullbed', done.toasts);
+    return done;
+  }
+  if (a.type === 'buyCloche') {
+    if (S.pips < CLOCHE_PRICE) return { error: `A cloche costs ${CLOCHE_PRICE} pips.` };
+    S.pips -= CLOCHE_PRICE; S.cloches++;
+    addLog(S, '', `Bought a glass cloche (−${CLOCHE_PRICE} pips).`, cur);
+    return done;
+  }
+
+  const i = a.plot;
+  if (!Number.isInteger(i) || i < 0 || i >= S.open) return { error: 'That plot is not open.' };
+  const p = S.plots[i];
+  switch (a.type) {
+    case 'plant': {
+      if (p) return { error: 'That plot is taken.' };
+      if (!Object.hasOwn(SEEDS, a.seed)) return { error: 'Pick a seed packet first.' };
+      const sd = SEEDS[a.seed];
+      if (sd.level > levelOf(S.xp)) return { error: `${sd.name} unlocks at level ${sd.level}.` };
+      if (S.pips < sd.price) return { error: `You need ${sd.price} pips for ${sd.name}.` };
+      S.pips -= sd.price;
+      S.plots[i] = newPlant(a.seed, cur);
+      addLog(S, '', `Plot ${i + 1}: planted ${sd.name} (−${sd.price} pips). It reacts from round ${cur + 1}.`, cur);
+      return done;
+    }
+    case 'harvest':
+      if (!p || p.status !== 'ripe') return { error: 'That plant is not ripe yet.' };
+      return harvestPlot(S, i, cur);
+    case 'clear':
+      if (!p || (p.status !== 'wilted' && p.status !== 'rotten')) return { error: 'There is nothing to clear.' };
+      S.plots[i] = null;
+      return done;
+    case 'dig':
+      if (!p || p.status !== 'growing') return { error: 'There is nothing to dig up.' };
+      addLog(S, 'bad', `Plot ${i + 1}: dug up ${SEEDS[p.seed].name}.`, cur);
+      S.plots[i] = null;
+      return done;
+    case 'water': {
+      if (!p || p.status !== 'growing') return { error: 'Tools work on growing plants.' };
+      if (S.processed < S.waterAt) return { error: 'The watering can is still refilling.' };
+      const ev = water(p, S.processed);
+      S.waterAt = S.processed + WATER_COOLDOWN;
+      addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, cur);
+      return done;
+    }
+    case 'cover':
+      if (!p || p.status !== 'growing') return { error: 'Tools work on growing plants.' };
+      if (p.cloche) return { error: 'That plant already has a cloche.' };
+      if (S.cloches < 1) return { error: 'Buy a cloche first.' };
+      S.cloches--; p.cloche = true;
+      addLog(S, '', `Plot ${i + 1}: covered ${SEEDS[p.seed].name} with a cloche.`, cur);
+      return done;
+  }
+  return { error: 'Unknown action.' };
+}

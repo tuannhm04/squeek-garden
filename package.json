@@ -4,5 +4,9 @@
   "type": "module",
   "scripts": {
     "test": "node --test"
+  },
+  "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   }
 }

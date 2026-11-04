@@ -173,6 +173,9 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .lower { display: grid; grid-template-columns: 280px minmax(0, 1fr) 320px; gap: 16px; align-items: stretch; }
 @media (max-width: 1000px) { .lower { grid-template-columns: minmax(0, 1fr); } }
 .panel { background: var(--panel); padding: 12px 14px 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.walletrow { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.walletbtn { background: var(--gold); }
+.walletbtn:hover { background: var(--cream); }
 .savebar { display: flex; flex-wrap: wrap; gap: 6px; }
 .quest { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .quest b { font-weight: 400; }
@@ -238,3 +241,12 @@ dd { margin: 0; font: 30px/1 var(--num); }
   .strip svg { height: 48px; }
   .hint { min-height: 2.4em; }
 }
+
+/* leaderboard page */
+.board-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.board { width: 100%; border-collapse: collapse; }
+.board th { text-align: left; font-weight: 400; color: var(--muted); padding: 0 12px 6px 0; }
+.board td { padding: 5px 12px 5px 0; border-top: 2px solid var(--line); }
+.board td:first-child, .board td:last-child, .board th:last-child { font-family: var(--num); font-size: 24px; }
+.board td:last-child, .board th:last-child { text-align: right; padding-right: 0; }
+.board tr.me td { color: var(--gold); }

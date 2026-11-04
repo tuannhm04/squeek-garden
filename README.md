@@ -35,7 +35,7 @@ All game outcomes come from Squeekchain's public API, which mirrors SqueekCore o
 - `GET /v1/events?category=protocol`: `system.settlement_completed` events. Each one closes a round with its `workAdded` (0 for a nap). The garden replays every settled round since your last visit, so plants keep growing while the tab is closed.
 - `GET /v1/status`: live wheel telemetry (`coreStatus`, `rpmMilli`, `cumulativeWorkUnits`) for the current-round readout.
 
-The API allows cross-origin requests, so the site is fully static.
+The API allows cross-origin requests, so the game itself runs entirely in the browser.
 
 A settlement that closes one round gives that round's exact work. A settlement that closes several rounds only reports their total, so the game never guesses how it was divided: a total of 0 counts as naps, and otherwise growing plants wait out those rounds. Ripe plants still age. If history is missing or the API is down, the garden stops at the last round it has and catches up later, without assuming any work.
 
@@ -43,10 +43,10 @@ A settlement that closes one round gives that round's exact work. A settlement t
 
 ## Run it
 
-Any static file server works:
+The game alone runs from any static file server, without the wallet and leaderboard:
 
 ```bash
-python -m http.server 8765
+python -m http.server 8765 --directory public
 ```
 
 Then open http://localhost:8765.
@@ -55,15 +55,32 @@ Then open http://localhost:8765.
 
 - `index.html`: page structure
 - `garden.css`: styles, light and dark
-- `engine.js`: plant rules and seasons (pure, shared with the tests)
-- `settlement.js`: validates settlement events, builds the round ledger and pages through history
-- `save.js`: save validation, v2 to v3 migration, backups, export and import
-- `garden.js`: live and demo sources, game actions and rendering
-- `guide/index.html`: how to play
+- `public/engine.js`: plant rules, seasons and player actions (pure, shared by the page, the server and the tests)
+- `public/settlement.js`: validates settlement events, builds the round ledger and pages through history
+- `public/save.js`: save validation, v2 to v3 migration, backups, export and import
+- `public/wallet.js`: wallet sign-in in the browser
+- `public/garden.js`: live and demo sources, game actions and rendering
+- `public/guide/`: how to play
+- `public/leaderboard/`: Live and Practice boards
+- `server/`: the Cloudflare Worker with sign-in, gardens and scores
+- `migrations/`: the database schema
 
 ## Saves
 
-Your garden lives in this browser. Schema v3 is stored beside the old v2 save, which is copied once to a backup and never changed. Export or import a save from "Your record" on the play screen, for example to move to a new address.
+Without a wallet, your garden lives in this browser. Schema v3 is stored beside the old v2 save, which is copied once to a backup and never changed. Export or import a save from "Your record" on the play screen, for example to move to a new address.
+
+## Wallet and leaderboard
+
+Connecting a wallet means signing a text message (Sign-In with Ethereum), which costs no gas. You then play a separate garden kept by the server, in Cloudflare D1. The browser only sends what you did. The server checks each action against the same rules in `public/engine.js`, plays real settled rounds itself and works out the score, so editing the browser or a request cannot raise it. Browser saves are never imported into it.
+
+The Live board only takes those scores. Demo rounds are simulated, so Demo scores go on a separate Practice board that does not count.
+
+## Deploy
+
+```bash
+npx wrangler d1 migrations apply squeek-garden --remote
+npx wrangler deploy
+```
 
 ## Tests
 
@@ -71,10 +88,9 @@ Your garden lives in this browser. Schema v3 is stored beside the old v2 save, w
 npm test
 ```
 
-No dependencies are needed. `tests/fixtures/` holds real API events and the assumptions made about them.
+Run `npm install` first. `tests/fixtures/` holds real API events and the assumptions made about them.
 
 ## Next
 
-- Wallet sign-in (signed message, no gas) and a shared weekly leaderboard.
 - Seed trading between players.
 - A "plant on chain" option that records each sowing as a Sepolia transaction.

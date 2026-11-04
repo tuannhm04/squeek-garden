@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { blankState, newPlant } from '../engine.js';
-import { KEY_V2, KEY_V3, applyImport, exportSave, loadSave, migrateV2, parseImport, rollbackV3, validateState, writeSave } from '../save.js';
+import { blankState, newPlant } from '../public/engine.js';
+import { KEY_V2, KEY_V3, applyImport, exportSave, loadSave, migrateV2, parseImport, rollbackV3, validateState, writeSave } from '../public/save.js';
 
 class Memory {
   map = new Map();

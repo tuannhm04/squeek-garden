@@ -1,7 +1,8 @@
-import { ACHIEVEMENTS, CLASS_NAME, CLOCHE_PRICE, LEVELS, MAX_PLOTS, OAK_WORK, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS, WATER_COOLDOWN,
-  applyRound, blankState, classify, harvestValue, levelOf, newPlant, progress, progressText, rollSeason, seasonId, water } from './engine.js';
+import { ACHIEVEMENTS, CLASS_NAME, LEVELS, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS,
+  addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, rollPeriods as rollStatePeriods, seasonId, settleRounds } from './engine.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
+import { api, connectWallet } from './wallet.js';
 
 (() => {
 'use strict';
@@ -20,12 +21,9 @@ function load(m) {
   return s;
 }
 function save() {
-  if (mode === 'live') writeSave(storage, state);
+  if (mode === 'live' && !wallet) writeSave(storage, state);
 }
-function addLog(kind, text, round) {
-  state.log.unshift({ kind, text, round });
-  state.log.length = Math.min(state.log.length, 60);
-}
+const addLog = (kind, text, round) => logTo(state, kind, text, round);
 
 // ---------- data sources ----------
 async function getJSON(url) {
@@ -88,124 +86,61 @@ const demo = {
 };
 
 // ---------- game actions ----------
-let mode = 'live', src = live, state = load('live'), selected = null, armed = null;
+let mode = 'live', src = live, wallet = null, state = load('live'), selected = null, armed = null;
 
-function unlock(id) {
-  if (state.ach[id]) return;
-  state.ach[id] = true;
-  addLog('good', `Achievement: ${ACHIEVEMENTS[id][0]}!`, null);
-  toast(`Achievement unlocked: ${ACHIEVEMENTS[id][0]}`);
+function rollPeriods() { rollStatePeriods(state, seasonId(), src.questKey()); }
+function processRounds() { src.syncing = settleRounds(state, src.rounds, src.latest, src.historyEnded); }
+
+// With a wallet connected the server decides: every action goes there in order, and its garden replaces ours.
+let queue = Promise.resolve(), pending = 0;
+function pushAction(a) {
+  pending++;
+  queue = queue.then(async () => {
+    let fresh = null;
+    try { fresh = (await api('/api/action', { id: crypto.randomUUID(), ...a })).state; }
+    catch (e) { toast(e.message); try { fresh = (await api('/api/garden')).state; } catch (_) { /* keep what is on screen */ } }
+    pending--;
+    if (fresh && wallet && mode === 'live' && !pending) { state = fresh; processRounds(); render(); }
+  });
 }
 
-function rollPeriods() {
-  if (rollSeason(state, seasonId())) addLog('good', 'A new week started. Season score reset.', null);
-  const qk = src.questKey();
-  if (!state.quest || state.quest.key !== qk) {
-    const q = QUESTS[((qk % QUESTS.length) + QUESTS.length) % QUESTS.length];
-    state.quest = { key: qk, id: q.id, progress: 0, done: false };
-  }
+/** Practice scores are unofficial, but a connected player still gets a place on the practice board. */
+function reportPractice() {
+  if (wallet && mode === 'demo') api('/api/practice', { score: state.seasonScore }).catch(() => {});
 }
 
-function processRounds() {
-  if (!src.latest) return;
-  if (state.processed === null) { state.processed = src.latest; addLog('', `Garden opened at round ${src.latest + 1}. You have 60 pips to spend on seeds.`, src.latest + 1); return; }
-  src.syncing = false;
-  let missing = 0;
-  for (let r = state.processed + 1; r <= src.latest; r++) {
-    let rd = src.rounds.get(r);
-    if (!rd) {
-      if (!src.historyEnded) { src.syncing = true; break; } // wait for the history instead of guessing
-      rd = { work: null }; missing++;
-    }
-    if (rd.batch && r === rd.batch.first && state.plots.some(p => p && p.status === 'growing')) {
-      addLog('', `Rounds ${rd.batch.first}-${rd.batch.last} settled together, so their work per round is unknown. Growing plants waited.`, r);
-    }
-    state.plots.forEach((p, i) => { const ev = applyRound(p, r, rd.work); if (ev) addLog(ev[0], `Plot ${i + 1}: ${ev[1]}`, r); });
-    state.processed = r;
-  }
-  if (missing) addLog('bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
-}
-
-function harvest(i) {
-  const p = state.plots[i], cur = src.currentRound();
-  const { value, diverse } = harvestValue(state, i);
-  const lvBefore = levelOf(state.xp);
-  state.seasonScore += value; state.pips += value; state.xp += value; state.harvests++;
-  state.best = Math.max(state.best, state.seasonScore);
-  state.herb[p.seed] = (state.herb[p.seed] || 0) + 1;
-  addLog('good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}.`, cur);
-  state.plots[i] = null;
-  floatText(i, `+${value}`);
-
-  const q = state.quest, qd = q && QUESTS.find(x => x.id === q.id);
-  if (qd && !q.done && qd.test({ seed: p.seed, diverse })) {
-    q.progress++;
-    if (q.progress >= qd.n) { q.done = true; state.pips += qd.reward; addLog('good', `Quest done: ${qd.text}. +${qd.reward} pips.`, cur); toast(`Quest done! +${qd.reward} pips`); }
-  }
-  unlock('first');
-  if (diverse) unlock('mixed');
-  if ((state.herb.moonmoss || 0) >= 5) unlock('night');
-  if (p.seed === 'comet') unlock('comet');
-  if (p.seed === 'wheelbloom') unlock('bloom');
-  if (SEED_KEYS.every(k => state.herb[k])) unlock('herbarium');
-  if (state.seasonScore >= 500) unlock('week500');
-  const lv = levelOf(state.xp);
-  if (lv > lvBefore) {
-    const fresh = SEED_KEYS.filter(k => SEEDS[k].level === lv).map(k => SEEDS[k].name);
-    addLog('good', `Level ${lv}!${fresh.length ? ` New seed: ${fresh.join(', ')}.` : ''}`, cur);
-    toast(`Level ${lv}!${fresh.length ? ` ${fresh.join(', ')} unlocked` : ''}`);
-  }
+function act(a) {
+  const res = doAction(state, a, src.currentRound());
+  if (res.error) { flashHint(res.error); return false; }
+  if (res.gained) floatText(a.plot, `+${res.gained}`);
+  res.toasts.forEach(toast);
+  if (wallet && mode === 'live') pushAction(a);
+  if (a.type === 'harvest') reportPractice();
+  save();
+  return true;
 }
 
 function plotClick(i) {
   if (i >= state.open) return;
-  const p = state.plots[i], cur = src.currentRound();
+  const p = state.plots[i];
   if (selected === 'water' || selected === 'cloche') {
-    if (!p || p.status !== 'growing') { flashHint('Tools work on growing plants.'); return; }
-    if (selected === 'water') {
-      if (state.processed < state.waterAt) { flashHint('The watering can is still refilling.'); return; }
-      const ev = water(p, state.processed); state.waterAt = state.processed + WATER_COOLDOWN;
-      addLog(ev[0], `Plot ${i + 1}: ${ev[1]}`, cur); selected = null;
-    } else {
-      if (p.cloche) { flashHint('That plant already has a cloche.'); return; }
-      if (state.cloches < 1) { flashHint('Buy a cloche first.'); return; }
-      state.cloches--; p.cloche = true; addLog('', `Plot ${i + 1}: covered ${SEEDS[p.seed].name} with a cloche.`, cur);
-      if (!state.cloches) selected = null;
-    }
+    if (selected === 'water') { if (act({ type: 'water', plot: i })) selected = null; }
+    else if (act({ type: 'cover', plot: i }) && !state.cloches) selected = null;
   } else if (!p) {
     if (!selected) { flashHint('Pick a seed packet first.'); return; }
-    const sd = SEEDS[selected];
-    if (state.pips < sd.price) { flashHint(`You need ${sd.price} pips for ${sd.name}.`); return; }
-    state.pips -= sd.price;
-    state.plots[i] = newPlant(selected, cur);
-    addLog('', `Plot ${i + 1}: planted ${sd.name} (−${sd.price} pips). It reacts from round ${cur + 1}.`, cur);
-    if (state.pips < sd.price) selected = null;
+    if (act({ type: 'plant', plot: i, seed: selected }) && state.pips < SEEDS[selected].price) selected = null;
   } else if (p.status === 'ripe') {
-    harvest(i);
+    act({ type: 'harvest', plot: i });
   } else if (p.status === 'wilted' || p.status === 'rotten') {
-    state.plots[i] = null;
+    act({ type: 'clear', plot: i });
   } else if (armed === i) {
-    addLog('bad', `Plot ${i + 1}: dug up ${SEEDS[p.seed].name}.`, cur);
-    state.plots[i] = null; armed = null;
+    act({ type: 'dig', plot: i }); armed = null;
   } else { armed = i; setTimeout(() => { if (armed === i) { armed = null; render(); } }, 3000); }
-  save(); render();
+  render();
 }
 
-function buyPlot() {
-  const price = PLOT_PRICES[state.open - START_PLOTS];
-  if (price == null) return;
-  if (state.pips < price) { flashHint(`A new plot costs ${price} pips.`); return; }
-  state.pips -= price; state.open++;
-  addLog('good', `Dug a new plot (−${price} pips). You now have ${state.open}.`, src.currentRound());
-  if (state.open === MAX_PLOTS) unlock('fullbed');
-  save(); render();
-}
-function buyCloche() {
-  if (state.pips < CLOCHE_PRICE) { flashHint(`A cloche costs ${CLOCHE_PRICE} pips.`); return; }
-  state.pips -= CLOCHE_PRICE; state.cloches++;
-  addLog('', `Bought a glass cloche (−${CLOCHE_PRICE} pips).`, src.currentRound());
-  save(); render();
-}
+function buyPlot() { act({ type: 'buyPlot' }); render(); }
+function buyCloche() { act({ type: 'buyCloche' }); render(); }
 
 // ---------- rendering ----------
 const $ = id => document.getElementById(id);
@@ -323,7 +258,11 @@ function render() {
   $('sSeason').textContent = state.seasonScore.toLocaleString();
   $('sBest').textContent = Math.max(state.best, state.seasonScore).toLocaleString();
   $('sHarvests').textContent = state.harvests;
-  $('seasonNote').textContent = mode === 'demo' ? 'Demo progress is not saved. Quests change every 15 demo rounds.' : 'Weeks reset Monday 00:00 UTC, quests daily. Your garden is saved in this browser.';
+  $('seasonNote').textContent = mode === 'demo' ? 'Demo progress is not saved. Quests change every 15 demo rounds.'
+    : wallet ? 'This garden is kept by the server, so its score counts on the Live board. Weeks reset Monday 00:00 UTC.'
+    : 'Weeks reset Monday 00:00 UTC, quests daily. Saved in this browser. Connect a wallet to join the leaderboard.';
+  $('bWallet').textContent = wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}, disconnect` : 'Connect wallet';
+  $('bExport').hidden = $('bImport').hidden = !!wallet;
   $('herb').innerHTML = SEED_KEYS.map(k => `<li class="${state.herb[k] ? '' : 'missing'}" title="${SEEDS[k].name}">${plantArt(k, 1, 'ripe')}<span>${state.herb[k] || 0}</span></li>`).join('');
   $('ach').innerHTML = Object.entries(ACHIEVEMENTS).map(([id, [name, how]]) => `<li class="${state.ach[id] ? 'got' : ''}" title="${esc(how)}"><b>${esc(name)}</b><small>${esc(how)}</small></li>`).join('');
   $('log').innerHTML = state.log.slice(0, 40).map(e => `<li class="${e.kind}"><time>${e.round ? 'R' + e.round : ''}</time><span>${esc(e.text)}</span></li>`).join('');
@@ -442,11 +381,36 @@ function setMode(m) {
   mode = m; src = m === 'live' ? live : demo; selected = null; armed = null;
   if (m === 'demo') { demo.reset(); demo.tick(); }
   state = load(m);
+  if (m === 'live' && wallet) api('/api/garden').then(d => { if (mode === 'live' && wallet) { state = d.state; rollPeriods(); processRounds(); render(); } }).catch(e => toast(e.message));
   $('mLive').setAttribute('aria-pressed', m === 'live'); $('mDemo').setAttribute('aria-pressed', m === 'demo');
   if (m === 'demo') { state.processed = 0; state.pips = 200; addLog('', 'Demo garden: rounds last 8 seconds, the hamster is simulated and you start with 200 pips.', 1); rollPeriods(); }
   else syncLive();
   render();
 }
+/** Switches to the server's garden for this wallet. The browser's own garden stays saved for when you disconnect. */
+async function enterWallet(address) {
+  const d = await api('/api/garden');
+  wallet = address;
+  selected = null; armed = null;
+  if (mode !== 'live') { mode = 'live'; src = live; $('mLive').setAttribute('aria-pressed', true); $('mDemo').setAttribute('aria-pressed', false); }
+  state = d.state;
+  rollPeriods(); processRounds(); render();
+}
+$('bWallet').onclick = async () => {
+  try {
+    if (wallet) {
+      await api('/api/logout', {});
+      wallet = null; selected = null; armed = null;
+      if (mode === 'live') state = load('live');
+      syncLive(true);
+      render();
+      toast('Disconnected. This is the garden saved in your browser.');
+      return;
+    }
+    await enterWallet(await connectWallet());
+    toast('Connected. This is your verified garden. Your browser garden stays saved.');
+  } catch (e) { toast(e.message); }
+};
 $('bExport').onclick = () => {
   const url = URL.createObjectURL(new Blob([exportSave(state)], { type: 'application/json' }));
   const a = document.createElement('a');
@@ -492,6 +456,8 @@ async function syncLive(force) {
     else renderWheel();
   }, 1000);
 })();
+// The session check does not wait for Squeekchain: a returning player should see their own garden straight away.
+api('/api/me').then(me => (me.address ? enterWallet(me.address) : null)).catch(() => { /* no server: the garden still works in this browser */ });
 rollPeriods();
 applyIcons();
 render();

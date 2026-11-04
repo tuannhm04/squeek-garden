@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Squeek Garden leaderboard</title>
+<meta name="description" content="This week's best gardens on Squeektoshi's real wheel rounds.">
+<link rel="icon" id="fav">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jersey+15&family=Pixelify+Sans:wght@600;700&family=VT323&display=swap">
+<link rel="stylesheet" href="../garden.css">
+</head>
+<body data-sky="night" class="guide-page">
+<div class="wrap">
+  <header class="guide-top">
+    <h1>Leaderboard</h1>
+    <a class="guidelink" href="../">Back to the garden</a>
+  </header>
+
+  <div class="board-tabs" role="group" aria-label="Board">
+    <button id="tLive" aria-pressed="true">Live</button>
+    <button id="tPractice" aria-pressed="false">Practice</button>
+    <button id="tThis" aria-pressed="true">This week</button>
+    <button id="tLast" aria-pressed="false">Last week</button>
+  </div>
+
+  <section class="panel" aria-live="polite">
+    <h2 id="title">Live this week</h2>
+    <p class="note" id="note"></p>
+    <table class="board" id="board" hidden>
+      <thead><tr><th>Rank</th><th>Gardener</th><th>Picked</th><th>Score</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="empty" hidden></p>
+    <p id="mine" class="note" hidden></p>
+  </section>
+</div>
+<script src="../pixel.js"></script>
+<script type="module" src="leaderboard.js"></script>
+</body>
+</html>

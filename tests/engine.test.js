@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyRound, blankState, classify, harvestValue, newPlant, rollSeason, seasonId, water } from '../engine.js';
+import { applyRound, blankState, classify, harvestValue, newPlant, rollSeason, seasonId, water } from '../public/engine.js';
 
 const grow = (seed, works, from = 11) => {
   const p = newPlant(seed, 10);

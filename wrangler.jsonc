@@ -1,0 +1,11 @@
+{
+  "name": "squeek-garden",
+  "compatibility_date": "2026-11-03",
+  "main": "server/index.js",
+  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": ["/api/*"] },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "squeek-garden", "database_id": "4a665ebf-593a-4dae-a2a6-cda5d4872c7a" }
+  ],
+  "routes": [{ "pattern": "squeek-garden.trackingport.com", "custom_domain": true }],
+  "observability": { "enabled": true }
+}

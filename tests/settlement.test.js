@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { RoundLedger, fetchHistory, normalizeSettlement, splitSettlement } from '../settlement.js';
+import { RoundLedger, fetchHistory, normalizeSettlement, splitSettlement } from '../public/settlement.js';
 
 // Real events captured from api.squeekchain.com on 2026-11-04, see tests/fixtures/README.md
 const real = JSON.parse(readFileSync(new URL('./fixtures/settlements.json', import.meta.url)));

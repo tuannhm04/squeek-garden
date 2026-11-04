@@ -1,5 +1,5 @@
 import { ACHIEVEMENTS, CLASS_NAME, LEVELS, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS,
-  addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, rollPeriods as rollStatePeriods, seasonId, settleRounds } from './engine.js';
+  addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
 import { api, connectWallet } from './wallet.js';
@@ -37,12 +37,21 @@ const live = {
   rounds: ledger.rounds,
   get oldest() { return ledger.oldest; },
   get latest() { return ledger.latest; },
-  status: null, error: null, lastFetch: 0, historyEnded: false, syncing: false,
+  status: null, error: null, lastFetch: 0, historyEnded: false, syncing: false, installation: null, paused: false, lastCore: 0,
   currentRound() { return Math.floor((Date.now() / 1000 - GENESIS) / ROUND_S) + 1; },
   roundEndsAt(r) { return (GENESIS + r * ROUND_S) * 1000; },
   questKey() { return Math.floor(Date.now() / 86400000); },
   async init() {
-    try { const c = await getJSON(`${API}/core`); GENESIS = +c.configuration.genesisTimestamp || GENESIS; } catch (e) { this.error = e; }
+    try { await this.readCore(); } catch (e) { this.error = e; }
+  },
+  /** Notices a redeployed chain: its rounds start over, so the old ones must go. */
+  async readCore() {
+    const c = await getJSON(`${API}/core`);
+    this.lastCore = Date.now();
+    GENESIS = +c.configuration.genesisTimestamp || GENESIS;
+    this.paused = !!(c.core && c.core.paused);
+    if (this.installation && this.installation !== c.installationId) { ledger.clear(); this.historyEnded = false; }
+    this.installation = c.installationId || null;
   },
   async refreshRounds(needFrom) {
     const { exhausted } = await fetchHistory({ getJSON, url: `${API}/events?limit=100&category=protocol`, ledger, needFrom });
@@ -89,7 +98,10 @@ const demo = {
 let mode = 'live', src = live, wallet = null, state = load('live'), selected = null, armed = null;
 
 function rollPeriods() { rollStatePeriods(state, seasonId(), src.questKey()); }
-function processRounds() { src.syncing = settleRounds(state, src.rounds, src.latest, src.historyEnded); }
+function processRounds() {
+  if (src.installation) syncChain(state, src.installation, src.currentRound());
+  src.syncing = settleRounds(state, src.rounds, src.latest, src.historyEnded);
+}
 
 // With a wallet connected the server decides: every action goes there in order, and its garden replaces ours.
 let queue = Promise.resolve(), pending = 0;
@@ -196,10 +208,21 @@ function renderStrip() {
   }).join('') + `<line x1="0" y1="82.5" x2="480" y2="82.5" style="stroke:var(--line)"/>`;
 }
 
+/** Tells the player when this week's scores lock. The garden itself never ends. */
+function renderSeasonEnd() {
+  const el = $('seasonEnd');
+  if (mode !== 'live') { el.textContent = 'Demo rounds are simulated. Demo has no season end.'; return; }
+  const end = seasonEndsAt(seasonId()), mins = Math.max(0, Math.floor((end - Date.now()) / 60000));
+  const left = mins >= 1440 ? `${Math.floor(mins / 1440)}d ${Math.floor(mins % 1440 / 60)}h` : mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+  const when = new Date(end).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  el.textContent = `${live.paused ? 'Squeekchain is paused, so plants wait until rounds resume. ' : ''}This week's scores lock in ${left} (${when}). Your garden carries on after that.`;
+}
+
 function renderWheel() {
   const st = src.status, pill = $('wheelPill'), cur = src.currentRound();
   if (!st) { pill.className = 'pill'; pill.textContent = live.error && mode === 'live' ? 'Wheel data is unreachable. Try Demo.' : 'Connecting…'; }
   else if (mode === 'live' && live.error) { pill.className = 'pill'; pill.textContent = 'Wheel data paused, retrying'; }
+  else if (mode === 'live' && live.paused) { pill.className = 'pill'; pill.textContent = 'Squeekchain is paused'; }
   else if (mode === 'live' && live.syncing) { pill.className = 'pill'; pill.textContent = 'Catching up on rounds'; }
   else if (!st.online) { pill.className = 'pill'; pill.textContent = 'Wheel sensor offline'; }
   else if (st.running) { pill.className = 'pill run'; pill.textContent = `Running at ${Math.round(st.rpm)} rpm`; }
@@ -211,6 +234,7 @@ function renderWheel() {
   const lw = st && st.liveWork != null ? st.liveWork : null;
   $('rWork').textContent = lw == null ? '-' : lw.toLocaleString();
   $('rClass').innerHTML = lw == null ? '-' : `<span class="chip ${classify(lw)}">${icon(MOOD_ICON[classify(lw)])}${CLASS_NAME[classify(lw)]}</span>`;
+  renderSeasonEnd();
   const wl = Math.max(0, state.waterAt - state.processed);
   $('waterState').textContent = wl ? `refills in ${wl} round${wl > 1 ? 's' : ''}` : 'ready';
 }
@@ -437,6 +461,8 @@ $('mDemo').onclick = () => setMode('demo');
 
 async function syncLive(force) {
   try {
+    if (Date.now() - live.lastCore > 60000) await live.readCore();
+    if (live.installation) syncChain(state, live.installation, live.currentRound());
     const need = state.processed === null ? live.currentRound() - 2 : state.processed + 1;
     if (force || live.latest < live.currentRound() - 1 || ledger.firstGap(need) !== null) {
       if (Date.now() - live.lastFetch > 20000 || force) await live.refreshRounds(need);

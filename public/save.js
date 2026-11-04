@@ -37,6 +37,7 @@ export function validateState(s) {
   if (!isObject(s.herb)) out.push('bad herbarium');
   if (!isObject(s.ach)) out.push('bad achievements');
   if (!Array.isArray(s.log)) out.push('bad diary');
+  if (s.chain !== undefined && typeof s.chain !== 'string') out.push('bad chain');
   return out;
 }
 

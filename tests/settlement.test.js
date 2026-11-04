@@ -144,3 +144,12 @@ test('a network failure leaves the ledger usable', async () => {
   await assert.rejects(fetchHistory({ getJSON: async () => { throw new Error('offline'); }, url, ledger: l, needFrom: 1 }));
   assert.equal(l.rounds.get(2).work, 10);
 });
+
+test('clearing a ledger forgets the old chain but keeps the same map', () => {
+  const l = ledgerOf([event(1, 2, 10)]), map = l.rounds;
+  l.clear();
+  assert.equal(l.rounds, map);
+  assert.deepEqual([map.size, l.oldest, l.latest], [0, Infinity, 0]);
+  l.ingest([event(0, 1, 5)]);
+  assert.deepEqual([l.oldest, l.latest, l.rounds.get(1).work], [1, 1, 5]);
+});

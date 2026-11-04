@@ -1,3 +1,4 @@
+import { seasonEndsAt, seasonId } from '../engine.js';
 import { api } from '../wallet.js';
 
 const $ = id => document.getElementById(id);
@@ -16,6 +17,8 @@ async function show() {
   $('tLast').setAttribute('aria-pressed', back === 1);
   $('title').textContent = `${board === 'live' ? 'Live' : 'Practice'} ${back ? 'last week' : 'this week'}`;
   $('note').textContent = NOTE[board];
+  const end = seasonEndsAt(seasonId());
+  $('ends').textContent = back ? 'This week is over and its scores are final.' : `Scores lock on ${new Date(end).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}.`;
   $('board').hidden = true; $('empty').hidden = true; $('mine').hidden = true;
   try {
     const d = await api(`/api/leaderboard?board=${board}&back=${back}`);

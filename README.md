@@ -39,6 +39,8 @@ The API allows cross-origin requests, so the game itself runs entirely in the br
 
 A settlement that closes one round gives that round's exact work. A settlement that closes several rounds only reports their total, so the game never guesses how it was divided: a total of 0 counts as naps, and otherwise growing plants wait out those rounds. Ripe plants still age. If history is missing or the API is down, the garden stops at the last round it has and catches up later, without assuming any work.
 
+If Squeekchain redeploys and counts rounds from the start again, a garden keeps its plants and progress, moves its round marks to the new count and waits for new rounds. Scores lock every Monday at 00:00 UTC, and the play screen counts down to it. The garden itself never ends.
+
 **Demo mode** simulates 8-second rounds so you can see a whole growth cycle in a minute.
 
 ## Run it

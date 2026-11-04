@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyRound, blankState, classify, harvestValue, newPlant, rollSeason, seasonId, water } from '../public/engine.js';
+import { applyRound, blankState, classify, doAction, harvestValue, newPlant, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
 
 const grow = (seed, works, from = 11) => {
   const p = newPlant(seed, 10);
@@ -124,4 +124,117 @@ test('watering gives one step of help', () => {
   const p = newPlant('moonmoss', 10);
   water(p, 11);
   assert.equal(p.growth, 1);
+});
+
+// ---------- how long a season runs ----------
+test('a season locks on the Monday 00:00 UTC that follows it', () => {
+  const thursday = Date.UTC(2026, 10, 5, 6, 0, 0), monday = Date.UTC(2026, 10, 9, 0, 0, 0);
+  assert.equal(new Date(monday).getUTCDay(), 1);
+  assert.equal(seasonEndsAt(seasonId(thursday)), monday);
+  assert.equal(seasonId(monday), seasonId(thursday) + 1);
+  assert.equal(seasonEndsAt(seasonId(monday - 1)), monday, 'the last moment still belongs to this season');
+  assert.equal(seasonEndsAt(seasonId(monday)), monday + 7 * 86400000);
+});
+
+// ---------- a redeployed chain ----------
+/** The real case: a garden at round 1306 when the chain restarts and the clock says 165. */
+const oldGarden = () => {
+  const S = blankState(1);
+  S.processed = 1306; S.pips = 345; S.xp = 500; S.seasonScore = 210; S.harvests = 9; S.waterAt = 1310;
+  S.plots[0] = { ...newPlant('moonmoss', 1300), growth: 2, age: 6 };
+  S.plots[1] = { ...newPlant('zoomflower', 1290), status: 'ripe', ripeRound: 1300 };
+  return S;
+};
+
+test('a save from the old chain moves to the new count and keeps everything', () => {
+  const S = oldGarden();
+  assert.equal(syncChain(S, 'new-chain', 165), true);
+  assert.equal(S.chain, 'new-chain');
+  assert.equal(S.processed, 164);
+  assert.equal(S.plots[0].plantedRound, 158);
+  assert.equal(S.plots[1].ripeRound, 158);
+  assert.equal(S.waterAt, 168);
+  assert.deepEqual([S.pips, S.xp, S.seasonScore, S.harvests, S.plots[0].growth, S.plots[0].age], [345, 500, 210, 9, 2, 6]);
+});
+
+test('a moved garden grows on the new rounds at once, not eight days later', () => {
+  const S = oldGarden();
+  syncChain(S, 'new-chain', 165);
+  settleRounds(S, new Map([[165, { work: 0 }], [166, { work: 0 }]]), 166);
+  assert.equal(S.processed, 166);
+  assert.equal(S.plots[0].growth, 4);
+  assert.equal(S.plots[0].status, 'ripe');
+});
+
+test('rounds from before the restart do not count', () => {
+  const S = oldGarden();
+  syncChain(S, 'new-chain', 165);
+  settleRounds(S, new Map([[1, { work: 0 }], [2, { work: 0 }]]), 2);
+  assert.equal(S.plots[0].growth, 2);
+  assert.equal(S.processed, 164);
+});
+
+test('the time left to pick a ripe plant survives the move', () => {
+  const S = oldGarden();
+  syncChain(S, 'new-chain', 165);
+  settleRounds(S, new Map([[165, { work: 0 }], [166, { work: 0 }], [167, { work: 0 }], [168, { work: 0 }], [169, { work: 0 }]]), 169);
+  assert.equal(S.plots[1].status, 'ripe');
+  settleRounds(S, new Map([[170, { work: 0 }]]), 170);
+  assert.equal(S.plots[1].status, 'rotten');
+});
+
+test('a plant set after the last settled round is not left ahead of the new count', () => {
+  const S = oldGarden();
+  S.plots[2] = newPlant('moonmoss', 1320);
+  syncChain(S, 'new-chain', 165);
+  assert.equal(S.plots[2].plantedRound, 164);
+  settleRounds(S, new Map([[165, { work: 0 }]]), 165);
+  assert.equal(S.plots[2].growth, 1);
+});
+
+test('syncing twice changes nothing the second time', () => {
+  const S = oldGarden();
+  syncChain(S, 'new-chain', 165);
+  const once = JSON.stringify(S);
+  assert.equal(syncChain(S, 'new-chain', 170), false);
+  assert.equal(JSON.stringify(S), once);
+});
+
+test('a marked garden moves again if the chain changes again', () => {
+  const S = oldGarden();
+  syncChain(S, 'second', 165);
+  assert.equal(syncChain(S, 'third', 10), true);
+  assert.equal(S.processed, 9);
+});
+
+test('a save that is not ahead of the clock is only marked', () => {
+  const S = blankState(1);
+  S.processed = 100;
+  assert.equal(syncChain(S, 'a-chain', 165), false);
+  assert.equal(S.processed, 100);
+  assert.equal(S.chain, 'a-chain');
+});
+
+test('a brand new garden on a paused chain just takes the mark', () => {
+  const S = blankState(1);
+  assert.equal(syncChain(S, 'new-chain', 165), false);
+  assert.equal(S.processed, null);
+  assert.equal(S.log.length, 0);
+});
+
+test('no chain id leaves the garden alone', () => {
+  const S = oldGarden(), before = JSON.stringify(S);
+  assert.equal(syncChain(S, null, 165), false);
+  assert.equal(JSON.stringify(S), before);
+});
+
+test('a plant watered ripe before any round settles does not rot at once', () => {
+  const S = blankState(1);
+  S.plots[0] = { ...newPlant('moonmoss', 165), growth: 3 };
+  assert.equal(doAction(S, { type: 'water', plot: 0 }, 165).error, undefined);
+  assert.equal(S.plots[0].status, 'ripe');
+  assert.equal(S.plots[0].ripeRound, 165);
+  settleRounds(S, new Map([[166, { work: 0 }]]), 166);
+  settleRounds(S, new Map([[167, { work: 0 }]]), 167);
+  assert.equal(S.plots[0].status, 'ripe');
 });

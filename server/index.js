@@ -1,6 +1,6 @@
 // Squeek Garden game server. The garden of a connected wallet lives here: the browser only sends
 // what the player did, and the score comes from replaying that against real settled rounds.
-import { blankState, doAction, rollPeriods, seasonId, settleRounds } from '../public/engine.js';
+import { blankState, doAction, rollPeriods, seasonId, settleRounds, syncChain } from '../public/engine.js';
 import { RoundLedger, fetchHistory } from '../public/settlement.js';
 import { checkMessage, checksumAddress, isAddress, parseMessage } from './siwe.js';
 
@@ -103,6 +103,11 @@ async function syncRounds(env, now, force = false) {
   const fetcher = env.fetchUpstream || fetch;
   const last = +(await metaGet(env, 'last_sync')) || 0;
   if (!force && now - last < SYNC_MS) return;
+  // A redeployed chain counts rounds from the start, so rounds on record belong to the old one.
+  const core = await getJSON(`${API}/core`, fetcher);
+  const installation = core.installationId || null;
+  const moved = !!installation && installation !== (await metaGet(env, 'installation'));
+  if (moved) await env.DB.prepare('DELETE FROM settlement_rounds').run();
   const top = await env.DB.prepare('SELECT MAX(round) AS latest FROM settlement_rounds').first();
   const have = top && top.latest ? top.latest : 0;
   const ledger = new RoundLedger();
@@ -114,10 +119,8 @@ async function syncRounds(env, now, force = false) {
   }
   // After a very long outage the pages may run out above our last round: those rounds count as unknown.
   if (have) for (let r = have + 1; r < ledger.oldest && r <= ledger.latest; r++) writes.push(insert(r, null, 0, null));
-  if (!(await metaGet(env, 'genesis'))) {
-    const core = await getJSON(`${API}/core`, fetcher);
-    if (+core.configuration.genesisTimestamp) writes.push(metaSet(env, 'genesis', core.configuration.genesisTimestamp));
-  }
+  if (+core.configuration.genesisTimestamp) writes.push(metaSet(env, 'genesis', core.configuration.genesisTimestamp));
+  if (installation) writes.push(metaSet(env, 'installation', installation));
   await env.DB.batch(writes);
 }
 
@@ -129,6 +132,7 @@ async function currentRound(env, now) {
 /** Brings a garden up to date with the calendar and with every round on record. */
 async function settle(env, S, now) {
   rollPeriods(S, seasonId(now), Math.floor(now / 86400000));
+  syncChain(S, await metaGet(env, 'installation'), await currentRound(env, now));
   const top = await env.DB.prepare('SELECT MAX(round) AS latest FROM settlement_rounds').first();
   const latest = top && top.latest ? top.latest : 0;
   const rows = S.processed === null ? { results: [] }

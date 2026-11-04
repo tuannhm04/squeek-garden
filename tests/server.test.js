@@ -29,7 +29,9 @@ function makeEnv(events = [], extra = {}) {
       prepare: sql => new Statement(db, sql),
       batch: async list => { db.exec('BEGIN'); try { const out = []; for (const s of list) out.push(await s.run()); db.exec('COMMIT'); return out; } catch (e) { db.exec('ROLLBACK'); throw e; } },
     },
-    fetchUpstream: async url => new Response(JSON.stringify(url.includes('/core') ? { configuration: { genesisTimestamp: '1793022600' } } : { events: env.events, nextCursor: null })),
+    installation: 'chain-a',
+    genesis: '1793022600',
+    fetchUpstream: async url => new Response(JSON.stringify(url.includes('/core') ? { installationId: env.installation, configuration: { genesisTimestamp: env.genesis } } : { events: env.events, nextCursor: null })),
     ...extra,
   };
   return env;
@@ -324,6 +326,41 @@ test('rounds lost beyond the paging limit count as unknown, not as naps', async 
   const after = (await c.call('/api/garden')).body.state;
   assert.equal(after.processed, r + 11);
   assert.equal(after.plots[0].age, 1, 'only the one round on record counts');
+});
+
+test('a garden survives Squeekchain restarting its rounds', async () => {
+  const env = playEnv();
+  let t = NOW;
+  const c = await player(env, makeWallet(), () => t);
+  await c.call('/api/action', action({ type: 'plant', plot: 0, seed: 'moonmoss' }));
+  const before = (await c.call('/api/garden')).body.state;
+  assert.equal(before.pips, 50);
+
+  // the real change: a new installation, a later genesis and no settled rounds yet
+  env.installation = 'chain-b';
+  env.genesis = String(Math.floor(NOW / 1000) - 600 * 164);
+  env.events = [];
+  t += 60000;
+  const moved = (await c.call('/api/garden')).body.state;
+  assert.equal(moved.chain, 'chain-b');
+  assert.equal(moved.pips, 50);
+  assert.equal(moved.plots[0].seed, 'moonmoss');
+  assert.equal(moved.processed, 164);
+  assert.equal(sqlOne(env, 'SELECT COUNT(*) AS n FROM settlement_rounds').n, 0, 'old rounds are gone');
+
+  // new rounds count straight away
+  env.events = [settled(164, 165, 0), settled(165, 166, 0)];
+  t += 60000;
+  const grown = (await c.call('/api/garden')).body.state;
+  assert.equal(grown.processed, 166);
+  assert.ok(grown.plots[0].growth > 0);
+});
+
+test('a new garden on a paused chain can still plant', async () => {
+  const env = makeEnv([]), c = await signIn(env);
+  const { state } = (await c.call('/api/garden')).body;
+  assert.equal(state.processed, null);
+  assert.equal((await c.call('/api/action', action({ type: 'plant', plot: 0, seed: 'moonmoss' }))).status, 200);
 });
 
 test('Squeekchain being down does not stop play', async () => {

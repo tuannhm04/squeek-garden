@@ -35,6 +35,12 @@ export class RoundLedger {
   oldest = Infinity;
   latest = 0;
 
+  clear() {
+    this.rounds.clear();
+    this.oldest = Infinity;
+    this.latest = 0;
+  }
+
   /** Safe to call with repeated or out-of-order events: the first record of a round stands. */
   ingest(events) {
     const stats = { settled: 0, malformed: 0, duplicates: 0, conflicts: 0 };

@@ -151,3 +151,8 @@ test('import backs up the garden it replaces', () => {
   assert.deepEqual(JSON.parse(m.getItem('squeek-garden:backup:v3:444')), current);
   assert.equal(JSON.parse(m.getItem(KEY_V3)).pips, 345);
 });
+
+test('a chain mark loads and a bad one is refused', () => {
+  assert.deepEqual(validateState({ ...blank(), chain: 'sepolia-core' }), []);
+  assert.ok(validateState({ ...blank(), chain: 5 }).length);
+});

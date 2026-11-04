@@ -166,6 +166,9 @@ export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 34560
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
   harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [] });
 
+/** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
+export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
+
 /** Starts a new week when the season changed. Returns true if it did. */
 export function rollSeason(S, id) {
   if (S.season === id) return false;
@@ -214,6 +217,29 @@ export function settleRounds(S, rounds, latest, historyEnded = false) {
   }
   if (missing) addLog(S, 'bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
   return waiting;
+}
+
+/**
+ * Squeekchain can redeploy and count rounds from the start again. The garden keeps everything,
+ * moves its round marks to the new count, and waits for rounds from now on.
+ * A save with no chain mark can only be told apart by being ahead of the clock.
+ */
+export function syncChain(S, chainId, cur) {
+  if (!chainId || S.chain === chainId) return false;
+  const changed = S.chain ? true : S.processed !== null && S.processed > cur;
+  S.chain = chainId;
+  if (!changed) return false;
+  const base = Math.max(0, cur - 1), shift = base - (S.processed === null ? base : S.processed);
+  for (const p of S.plots) {
+    if (!p) continue;
+    // Plants set in a round that had not settled yet must not end up ahead of the new count.
+    p.plantedRound = Math.min(base, Math.max(0, p.plantedRound + shift));
+    if (p.ripeRound !== null) p.ripeRound = Math.min(base, Math.max(0, p.ripeRound + shift));
+  }
+  S.waterAt = Math.min(base + WATER_COOLDOWN, Math.max(0, S.waterAt + shift));
+  if (S.processed !== null) S.processed = base;
+  addLog(S, '', 'Squeekchain restarted its rounds. Your garden carried over and waits for new ones.', cur);
+  return true;
 }
 
 // ---------- player actions ----------
@@ -297,9 +323,10 @@ export function doAction(S, a, cur) {
       return done;
     case 'water': {
       if (!p || p.status !== 'growing') return { error: 'Tools work on growing plants.' };
-      if (S.processed < S.waterAt) return { error: 'The watering can is still refilling.' };
-      const ev = water(p, S.processed);
-      S.waterAt = S.processed + WATER_COOLDOWN;
+      const settled = S.processed === null ? cur : S.processed; // no round has settled yet on a new chain
+      if (settled < S.waterAt) return { error: 'The watering can is still refilling.' };
+      const ev = water(p, settled);
+      S.waterAt = settled + WATER_COOLDOWN;
       addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, cur);
       return done;
     }

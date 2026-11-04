@@ -94,3 +94,5 @@ Run `npm install` first. `tests/fixtures/` holds real API events and the assumpt
 
 - Seed trading between players.
 - A "plant on chain" option that records each sowing as a Sepolia transaction.
+
+squeekchain-project: 965fa463-cd12-4507-a0e8-39352d4ad49f

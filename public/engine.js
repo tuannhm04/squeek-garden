@@ -41,6 +41,8 @@ export const ACHIEVEMENTS = {
   gloved:    ['Soft hands', 'Pick a plant you put gloves on.'],
   decor3:    ['Landscaper', 'Own 3 garden decorations.'],
   compost10: ['Composter', 'Compost 10 dead plants.'],
+  rancher:   ['Rancher', 'Keep a chicken, a pig and a cow at once.'],
+  produce50: ['Farm stand', 'Collect 50 eggs, cuts of pork or milk cans.'],
 };
 
 export const QUESTS = [
@@ -82,6 +84,15 @@ export const DECOR = [
   { id: 'scarecrow', name: 'Scarecrow',   price: 1200 },
   { id: 'pond',      name: 'Little pond', price: 2000 },
 ];
+
+// Animals earn pips from his real rounds and never points, so the leaderboard stays about the plants.
+// Products keep until collected and a full pen just stops, so going away costs nothing.
+export const MAX_PENS = 3, PEN_STOCK = 5;
+export const ANIMALS = {
+  chicken: { name: 'Chicken', product: 'egg',    plural: 'eggs',     mood: 'nap',  need: 3, pay: 12, price: 40,  level: 1, blurb: 'Lays an egg every 3 nap rounds. Each egg pays 12 pips.' },
+  pig:     { name: 'Pig',     product: 'cut of pork', plural: 'cuts of pork', mood: 'jog',  need: 2, pay: 30, price: 120, level: 2, blurb: 'Gives a cut of pork every 2 jog rounds. Each cut pays 30 pips.' },
+  cow:     { name: 'Cow',     product: 'milk can', plural: 'milk cans', mood: 'zoom', need: 1, pay: 50, price: 250, level: 3, blurb: 'Gives a can of milk every zoomies round. Each can pays 50 pips.' },
+};
 
 // ---------- plant rules (pure) ----------
 export const newPlant = (seed, round) => ({ seed, plantedRound: round, status: 'growing', growth: 0, age: 0, work: 0,
@@ -208,7 +219,7 @@ export const levelOf = xp => LEVELS.filter(t => xp >= t).length;
 // ---------- seasons and new gardens ----------
 export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0 });
+  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0 });
 
 /** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
 export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
@@ -281,6 +292,16 @@ function advanceCombo(S, seed, value, cur) {
   return Math.round(value * COMBO_BONUS[Math.min(count, COMBO_BONUS.length - 1)]);
 }
 
+/** One settled round for an animal. Rounds with unknown work are skipped. */
+export function applyAnimal(a, r, work) {
+  if (!a || r <= a.boughtRound || work === null) return;
+  const d = ANIMALS[a.kind];
+  if (classify(work) === d.mood) a.progress++;
+  if (a.progress >= d.need) {
+    if (a.stock < PEN_STOCK) { a.stock++; a.progress = 0; } else a.progress = d.need; // full: waits for you
+  }
+}
+
 /** Plays every round the garden has not seen yet. Returns true when it stopped to wait for missing history. */
 export function settleRounds(S, rounds, latest, historyEnded = false) {
   if (!latest) return false;
@@ -302,6 +323,7 @@ export function settleRounds(S, rounds, latest, historyEnded = false) {
       if (ev) addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, r);
       if (covered && !p.cloche) unlock(S, 'saved', []);
     });
+    (S.barn || []).forEach(a => applyAnimal(a, r, rd.work));
     S.processed = r;
   }
   if (missing) addLog(S, 'bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
@@ -326,6 +348,7 @@ export function syncChain(S, chainId, cur) {
     if (p.ripeRound !== null) p.ripeRound = Math.min(base, Math.max(0, p.ripeRound + shift));
   }
   S.waterAt = Math.min(base + WATER_COOLDOWN, Math.max(0, S.waterAt + shift));
+  for (const a of S.barn || []) if (a) a.boughtRound = Math.min(base, Math.max(0, a.boughtRound + shift));
   if (S.processed !== null) S.processed = base;
   S.combo = null; // measured in the old count
   addLog(S, '', 'Squeekchain restarted its rounds. Your garden carried over and waits for new ones.', cur);
@@ -383,6 +406,9 @@ function checkBadges(S, toasts) {
   earn('pips1000', S.pips >= 1000);
   earn('decor3', Object.keys(S.decor || {}).length >= 3);
   earn('compost10', (S.composted || 0) >= 10);
+  const kinds = new Set((S.barn || []).filter(Boolean).map(a => a.kind));
+  earn('rancher', Object.keys(ANIMALS).every(k => kinds.has(k)));
+  earn('produce50', (S.collected || 0) >= 50);
 }
 
 /** Applies one action, checking every rule. Returns { error } or { toasts, gained? }. Input may come from anyone. */
@@ -425,6 +451,29 @@ function runAction(S, a, cur) {
     if (S.pips < d.price) return { error: `The ${d.name.toLowerCase()} costs ${d.price} pips.` };
     S.pips -= d.price; S.decor[d.id] = true;
     addLog(S, 'good', `Added a ${d.name.toLowerCase()} to the garden (−${d.price} pips).`, cur);
+    return done;
+  }
+
+  if (a.type === 'buyAnimal') {
+    if (!Object.hasOwn(ANIMALS, a.item)) return { error: 'That animal is not for sale.' };
+    const d = ANIMALS[a.item];
+    if (d.level > levelOf(S.xp)) return { error: `The ${d.name.toLowerCase()} unlocks at level ${d.level}.` };
+    if (S.pips < d.price) return { error: `A ${d.name.toLowerCase()} costs ${d.price} pips.` };
+    S.barn = S.barn || [null, null, null];
+    const pen = S.barn.indexOf(null);
+    if (pen < 0) return { error: 'All your pens are full.' };
+    S.pips -= d.price;
+    S.barn[pen] = { kind: a.item, boughtRound: cur, progress: 0, stock: 0 };
+    addLog(S, 'good', `A ${d.name.toLowerCase()} moved into pen ${pen + 1} (−${d.price} pips).`, cur);
+    return done;
+  }
+  if (a.type === 'collect') {
+    const pen = (S.barn || [])[a.plot];
+    if (!pen) return { error: 'That pen is empty.' };
+    if (pen.stock < 1) return { error: 'There is nothing to collect yet.' };
+    const d = ANIMALS[pen.kind], earned = pen.stock * d.pay;
+    addLog(S, 'good', `Collected ${pen.stock} ${pen.stock > 1 ? d.plural : d.product} for ${earned} pips.`, cur);
+    S.pips += earned; S.collected = (S.collected || 0) + pen.stock; pen.stock = 0;
     return done;
   }
 

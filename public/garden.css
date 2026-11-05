@@ -174,6 +174,19 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .record .lower { margin-top: 12px; }
 .record + .record { margin-top: -10px; }
 .shopnote { margin-top: 8px; }
+.pens { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px; }
+.pen { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px 8px; align-items: center; background: var(--panel); padding: 8px; }
+.pen.empty { display: block; color: var(--muted); border: 2px dashed var(--line); background: none; }
+.pen img.spr, .animal img.spr { width: 44px; height: 44px; }
+.pen b, .animal b { display: block; font-weight: 400; }
+.pen small, .animal small { display: block; font-size: 17px; line-height: 1.1; color: var(--muted); }
+.pen button { grid-column: 1 / -1; }
+.pen button:disabled { opacity: .55; }
+.animals { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px; }
+.animal { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 8px; align-items: center; text-align: left; }
+.animal small { color: #6b4a33; }
+.animal.locked { opacity: .6; }
+.animal.locked img.spr { filter: brightness(0) opacity(.3); }
 .decorlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
 .decorbtn { text-align: left; }
 .decorbtn small { display: block; color: #6b4a33; font-size: 17px; }
@@ -194,8 +207,7 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .quest span { background: var(--gold); color: var(--ink); padding: 0 6px; font-size: 19px; }
 .quest.done span { background: var(--leaf-light); }
 
-.herb { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
-@media (max-width: 560px) { .herb { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.herb { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; }
 .herb li { display: grid; justify-items: center; background: var(--paper); color: var(--ink); padding: 3px 2px 0; font: 18px/1 var(--num); }
 .herb li img.spr { width: 100%; max-width: 48px; height: auto; }
 .herb li.missing { background: var(--earth); color: var(--muted); }

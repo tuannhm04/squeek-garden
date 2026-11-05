@@ -46,6 +46,9 @@ const leaf = (P, x, y, dir) => { P.px(x, y, C.leaf); P.px(x + dir, y, C.leaf); P
 const stem = (P, top) => P.line(8, 15, 8, top, C.leafDark);
 
 const SPRITES = {
+  chicken(P) { P.disc(7, 10, 4, C.white); P.disc(11, 6, 2.5, C.white); P.rect(10, 2, 2, 2, C.red); P.px(14, 6, C.orange); P.px(13, 6, C.orange); P.px(12, 5, C.ink); P.rect(2, 7, 2, 2, C.steel); P.rect(6, 14, 1, 2, C.orange); P.rect(9, 14, 1, 2, C.orange); P.outline(); },
+  pig(P) { P.rect(2, 7, 10, 6, C.pink); P.rect(10, 5, 5, 6, C.pink); P.rect(14, 8, 2, 2, C.red); P.px(12, 6, C.ink); P.px(10, 4, C.pink); P.rect(3, 13, 2, 2, C.pink); P.rect(9, 13, 2, 2, C.pink); P.px(1, 7, C.pink); P.outline(); },
+  cow(P) { P.rect(1, 6, 11, 6, C.white); P.rect(11, 4, 4, 6, C.white); P.rect(3, 7, 3, 3, C.ink); P.rect(8, 9, 2, 2, C.ink); P.px(13, 5, C.ink); P.rect(13, 8, 2, 2, C.pink); P.px(11, 3, C.wilt); P.px(14, 3, C.wilt); P.rect(2, 12, 2, 3, C.white); P.rect(9, 12, 2, 3, C.white); P.outline(); },
   glove(P) { P.rect(2, 2, 1, 3, C.gold); P.rect(3, 1, 1, 4, C.gold); P.rect(4, 1, 1, 4, C.gold); P.rect(5, 2, 1, 3, C.gold); P.px(6, 4, C.gold); P.rect(2, 5, 4, 2, C.wood); P.outline(); },
   sprout(P) { stem(P, 11); leaf(P, 7, 11, -1); leaf(P, 9, 11, 1); P.outline(); },
   young(P) {

@@ -23,7 +23,8 @@ Around the plants:
 - **Levels.** Every harvested point is XP. Levels unlock the pattern seeds above.
 - **Tools.** The watering can gives one step of help to a growing plant and refills after 6 rounds. A glass cloche saves a plant from the next thing that would wilt it. Harvest gloves let up to three plants stay ripe for 24 hours instead of 2.
 - **Compost and decorations.** Clearing a dead plant returns half its seed price. Spare pips buy decorations, which never add points.
-- **Daily quest** for bonus pips, a **herbarium** of every species you have picked, and 21 **achievements**.
+- **Daily quest** for bonus pips, a **herbarium** of every species you have picked, and 23 **achievements**.
+- **Barn.** Three pens hold chickens, pigs and cows. They earn pips, never points, from real nap, jog and zoomies rounds.
 - **Live scene.** The wheel at the top spins at Squeektoshi's real RPM; the sky turns to night while he naps, and your own plants grow along the skyline.
 
 The game is about reading the hamster: plant Moonmoss when he looks sleepy, Zoomflower when he is on a tear. Naps are worth as much as runs; nothing in the game rewards making him run.

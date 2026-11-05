@@ -429,6 +429,22 @@ test('a garden from before these features can buy them', async () => {
   assert.equal((await c.call('/api/action', action({ type: 'buyDecor', item: 'flag' }))).body.state.decor.flag, true);
 });
 
+test('the barn runs on the server from real rounds', async () => {
+  const env = playEnv();
+  let t = NOW;
+  const c = await player(env, makeWallet(), () => t);
+  const bought = (await c.call('/api/action', action({ type: 'buyAnimal', item: 'chicken', stock: 5, price: 0 }))).body.state;
+  assert.deepEqual([bought.pips, bought.barn[0].kind, bought.barn[0].stock], [20, 'chicken', 0]);
+  assert.equal((await c.call('/api/action', action({ type: 'collect', plot: 0 }))).status, 422);
+  const r = bought.barn[0].boughtRound;
+  env.events = [settled(100, r, 0), ...[1, 2, 3].map(i => settled(r + i - 1, r + i, 0))];
+  t += 60000;
+  const res = await c.call('/api/action', action({ type: 'collect', plot: 0, pay: 9999 }));
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.state.pips, 20 + 12);
+  assert.equal(res.body.state.seasonScore, 0);
+});
+
 test('Squeekchain being down does not stop play', async () => {
   const env = playEnv(), c = await player(env);
   env.fetchUpstream = async () => { throw new Error('offline'); };

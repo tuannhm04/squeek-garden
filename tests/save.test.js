@@ -198,3 +198,13 @@ test('old saves without gloves, compost or decorations still load, and bad ones 
     assert.ok(validateState({ ...blank(), ...change }).length, JSON.stringify(change));
   }
 });
+
+test('a barn loads, old saves have none, and impossible ones are refused', () => {
+  const good = { ...blank(), barn: [{ kind: 'cow', boughtRound: 1, progress: 0, stock: 2 }, null, null], collected: 4 };
+  assert.deepEqual(validateState(good), []);
+  const old = blank(); delete old.barn; delete old.collected;
+  assert.deepEqual(validateState(old), []);
+  for (const barn of [[], 'cows', [{ kind: 'dragon', boughtRound: 1, progress: 0, stock: 1 }, null, null], [{ kind: 'cow', boughtRound: 1, progress: 0, stock: -1 }, null, null]]) {
+    assert.ok(validateState({ ...blank(), barn }).length, JSON.stringify(barn));
+  }
+});

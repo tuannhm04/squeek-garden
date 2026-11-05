@@ -1,5 +1,5 @@
-import { ACHIEVEMENTS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
-  addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
+import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
+  MAX_PENS, PEN_STOCK, addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
 import { DEMO_ROUNDS, demoStart } from './demo.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
@@ -253,6 +253,21 @@ function renderDaily() {
     : `Pick different plants within ${COMBO_WINDOW} rounds of each other for up to 15% extra pips. Points stay the same.`;
 }
 
+function renderBarn(lv) {
+  const barn = state.barn || Array(MAX_PENS).fill(null);
+  $('barnSummary').textContent = `Barn, ${barn.filter(Boolean).length} of ${MAX_PENS} pens used`;
+  $('pens').innerHTML = barn.map((a, i) => {
+    if (!a) return '<li class="pen empty"><span>Empty pen</span></li>';
+    const d = ANIMALS[a.kind], word = { nap: 'naps', jog: 'jogs', zoom: 'zoomies' }[d.mood];
+    return `<li class="pen"><img class="spr" src="${Pixel.sprite(a.kind)}" alt=""><span><b>${d.name}</b><small>${a.stock}/${PEN_STOCK} ${d.plural}. ${a.stock >= PEN_STOCK ? 'Full.' : `Next: ${Math.min(a.progress, d.need)}/${d.need} ${word}.`}</small></span>`
+      + `<button data-collect="${i}" ${a.stock ? '' : 'disabled'}>Collect ${a.stock * d.pay} pips</button></li>`;
+  }).join('');
+  $('animals').innerHTML = Object.entries(ANIMALS).map(([k, d]) => {
+    const locked = d.level > lv;
+    return `<button class="animal${locked ? ' locked' : ''}" data-animal="${k}" title="${esc(d.blurb)}" ${locked ? 'disabled' : ''}><img class="spr" src="${Pixel.sprite(k)}" alt=""><span><b>${d.name}</b><small>${locked ? `Unlocks at level ${d.level}` : `${d.price} pips. ${esc(d.blurb)}`}</small></span></button>`;
+  }).join('');
+}
+
 function render() {
   renderWheel(); renderStrip();
   const lv = levelOf(state.xp), nextXp = LEVELS[lv];
@@ -290,6 +305,7 @@ function render() {
   $('tCloche').querySelector('b').textContent = `Glass cloche ×${state.cloches}`;
   $('tGloves').setAttribute('aria-pressed', selected === 'gloves');
   $('tGloves').querySelector('b').textContent = `Harvest gloves ×${state.gloves || 0}`;
+  renderBarn(lv);
   const owned = state.decor || {};
   $('decorSummary').textContent = `Garden shop, ${Object.keys(owned).length} of ${DECOR.length} owned`;
   $('decor').innerHTML = DECOR.map(d => `<button class="decorbtn" data-decor="${d.id}" ${owned[d.id] ? 'disabled' : ''}>${esc(d.name)}<small>${owned[d.id] ? 'In your garden' : `${d.price} pips`}</small></button>`).join('');
@@ -387,6 +403,7 @@ function drawScene(t) {
   for (let y = GROUND + 2; y < SH - 2; y++) for (let x = (y % 2) * 2; x < SW; x += 4) dot(x, y, running ? PC.soilDark : '#33201b');
 
   drawDecor(running);
+  (state.barn || []).forEach((a, i) => { if (a && WX > 120) blit(Pixel.spriteGrid(a.kind), 48 + i * 17, GROUND - 14); });
 
   // the player's plots as a row of plants
   const n = state.open, step = Math.min(14, (WX - 24) / n), x0 = WX - 24 - n * step;
@@ -435,6 +452,8 @@ $('tCloche').onclick = () => { if (!state.cloches) { flashHint('Buy a cloche fir
 $('bCloche').onclick = buyCloche;
 $('tGloves').onclick = () => { if (!state.gloves) { flashHint('Buy gloves first.'); return; } selected = selected === 'gloves' ? null : 'gloves'; render(); };
 $('bGloves').onclick = () => { act({ type: 'buyGloves' }); render(); };
+$('pens').addEventListener('click', e => { const b = e.target.closest('[data-collect]'); if (b && !b.disabled) { act({ type: 'collect', plot: +b.dataset.collect }); render(); } });
+$('animals').addEventListener('click', e => { const b = e.target.closest('[data-animal]'); if (b && !b.disabled) { act({ type: 'buyAnimal', item: b.dataset.animal }); render(); } });
 $('decor').addEventListener('click', e => { const b = e.target.closest('[data-decor]'); if (b && !b.disabled) { act({ type: 'buyDecor', item: b.dataset.decor }); render(); } });
 
 function setMode(m) {

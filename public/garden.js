@@ -1,5 +1,5 @@
-import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, VARIANTS, WEATHER, weatherAt, weatherEnds, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_BONUS, FERTILIZER_PRICE, WATER_PRICE, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
-  MAX_PENS, PEN_STOCK, addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
+import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, VARIANTS, WEATHER, weatherAt, weatherEnds, FEED_PACK, FERTILIZER_BONUS, NIBBLES_LEVELS, SKILLS, SKILL_MAX, SKILL_PRICES, feedPackPrice, fertilizerPrice, nibblesLevel, nibblesTips, penStock, waterPrice, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
+  MAX_PENS, addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
 import { DEMO_ROUNDS, demoStart } from './demo.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
@@ -74,7 +74,7 @@ const live = {
 };
 
 const demo = {
-  rounds: new Map(), oldest: 1, latest: 0, roundMs: 8000, start: Date.now(), at: demoStart(), status: null,
+  rounds: new Map(), oldest: 1, latest: 0, roundMs: 20000, start: Date.now(), at: demoStart(), status: null,
   reset() { this.rounds.clear(); this.latest = 0; this.start = Date.now(); this.at = demoStart(); },
   currentRound() { return Math.floor((Date.now() - this.start) / this.roundMs) + 1; },
   roundEndsAt(r) { return this.start + r * this.roundMs; },
@@ -86,7 +86,7 @@ const demo = {
     }
     const work = DEMO_ROUNDS[this.at % DEMO_ROUNDS.length];
     const frac = 1 - (this.roundEndsAt(cur) - Date.now()) / this.roundMs;
-    this.status = { online: true, running: work > 0, rpm: work === 0 ? 0 : work < 500 ? 38 : 71, liveWork: Math.round(work * frac) };
+    this.status = { online: true, running: work > 0, rpm: work === 0 ? 0 : work < 500 ? 38 : 71, liveWork: Math.round(work * frac), roundWork: work };
   },
 };
 
@@ -133,7 +133,7 @@ function plotClick(i) {
   if (i >= state.open) return;
   const p = state.plots[i];
   if (selected === 'fertilizer') {
-    if (act({ type: 'fertilize', plot: i }) && state.pips < FERTILIZER_PRICE) selected = null;
+    if (act({ type: 'fertilize', plot: i }) && state.pips < fertilizerPrice(state)) selected = null;
   } else if (selected === 'gloves') {
     if (act({ type: 'glove', plot: i }) && !state.gloves) selected = null;
   } else if (selected === 'water' || selected === 'cloche') {
@@ -161,8 +161,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 let hintTimer = null;
 const hintText = () => {
-  if (selected === 'water') return `Tap a growing plant to water it for ${WATER_PRICE} pips.`;
-  if (selected === 'fertilizer') return `Tap a living plant. For ${FERTILIZER_PRICE} pips it pays ${Math.round(FERTILIZER_BONUS * 100)}% more pips when picked.`;
+  if (selected === 'water') return `Tap a growing plant to water it for ${waterPrice(state)} pips.`;
+  if (selected === 'fertilizer') return `Tap a living plant. For ${fertilizerPrice(state)} pips it pays ${Math.round(FERTILIZER_BONUS * 100)}% more pips when picked.`;
   if (selected === 'cloche') return 'Tap a growing plant to cover it.';
   if (selected === 'gloves') return 'Tap a growing or ripe plant. Once ripe it keeps for 24 hours instead of 2.';
   if (selected) return SEEDS[selected].blurb;
@@ -214,7 +214,7 @@ function renderStrip() {
 /** Tells the player when this week's scores lock. The garden itself never ends. */
 function renderSeasonEnd() {
   const el = $('seasonEnd');
-  if (mode !== 'live') { el.textContent = 'Demo replays past rounds at 8 seconds each.'; return; }
+  if (mode !== 'live') { el.textContent = 'Demo replays past rounds at 20 seconds each.'; return; }
   const end = seasonEndsAt(seasonId()), mins = Math.max(0, Math.floor((end - Date.now()) / 60000));
   const left = mins >= 1440 ? `${Math.floor(mins / 1440)}d ${Math.floor(mins % 1440 / 60)}h` : mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
   const when = new Date(end).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -242,7 +242,8 @@ function renderWheel() {
   $('rLeft').textContent = mode === 'demo' ? `${left.toFixed(0)}s` : `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
   const lw = st && st.liveWork != null ? st.liveWork : null;
   $('rWork').textContent = lw == null ? '-' : lw.toLocaleString();
-  $('rClass').innerHTML = lw == null ? '-' : `<span class="chip ${classify(lw)}">${icon(MOOD_ICON[classify(lw)])}${CLASS_NAME[classify(lw)]}</span>`;
+  const moodWork = st && st.roundWork != null ? st.roundWork : lw; // Demo knows how the round ends, so its mood matches its speed
+  $('rClass').innerHTML = moodWork == null ? '-' : `<span class="chip ${classify(moodWork)}">${icon(MOOD_ICON[classify(moodWork)])}${CLASS_NAME[classify(moodWork)]}</span>`;
   renderSeasonEnd();
   renderWeather();
   const wl = Math.max(0, state.waterAt - state.processed);
@@ -264,15 +265,40 @@ function renderDaily() {
     : `Pick different plants within ${COMBO_WINDOW} rounds of each other for up to 15% extra pips. Points stay the same.`;
 }
 
+/** Nibbles speaks up on the play screen, and through a browser notification if you asked for one. */
+const told = new Set();
+function renderNibbles() {
+  const last = src.rounds.get(src.latest), mood = last && last.work !== null ? classify(last.work) : null;
+  const tips = nibblesTips(state, src.currentRound(), mood), level = nibblesLevel(state);
+  $('nibbles').textContent = tips.length ? `Nibbles: ${tips[0].text}${tips.length > 1 ? ` (+${tips.length - 1} more)` : ''}` : '';
+  $('nibbles').classList.toggle('urgent', !!tips.length && tips[0].urgent);
+  const next = NIBBLES_LEVELS[level];
+  $('nibblesLevel').textContent = `Nibbles is level ${level}${next === undefined ? ', the top level.' : `. ${next - (state.nibbles || 0)} more picks or collections to the next level.`} ${['It watches ripe plants.', 'It also warns before plants wilt.', 'It also watches the barn.', 'It also suggests seeds.', 'It knows everything it can.'][level - 1]}`;
+  $('bNotify').hidden = !('Notification' in window) || Notification.permission === 'granted';
+  if (mode !== 'live' || !('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
+  for (const t of tips) {
+    if (!t.urgent || told.has(t.key)) continue;
+    told.add(t.key);
+    new Notification('Squeek Garden', { body: t.text, tag: t.key });
+  }
+}
+
+function renderSkills() {
+  $('skills').innerHTML = Object.entries(SKILLS).map(([k, d]) => {
+    const level = (state.skills && state.skills[k]) || 0, top = level >= SKILL_MAX;
+    return `<li class="skill"><span><b>${d.name}, level ${level} of ${SKILL_MAX}</b><small>${d.effect}</small></span><button data-skill="${k}" ${top ? 'disabled' : ''}>${top ? 'Top level' : `Upgrade, ${SKILL_PRICES[level]} pips`}</button></li>`;
+  }).join('');
+}
+
 function renderBarn(lv) {
   const barn = state.barn || Array(MAX_PENS).fill(null);
   const feed = state.feed || 0;
   $('barnSummary').textContent = `Barn, ${barn.filter(Boolean).length} of ${MAX_PENS} pens used, ${feed} feed`;
-  $('bFeed').textContent = `Buy ${FEED_PACK} feed, ${FEED_PACK_PRICE} pips (you have ${feed})`;
+  $('bFeed').textContent = `Buy ${FEED_PACK} feed, ${feedPackPrice(state)} pips (you have ${feed})`;
   $('pens').innerHTML = barn.map((a, i) => {
     if (!a) return '<li class="pen empty"><span>Empty pen</span></li>';
     const d = ANIMALS[a.kind], word = { nap: 'naps', jog: 'jogs', zoom: 'zoomies' }[d.mood];
-    return `<li class="pen"><img class="spr" src="${Pixel.sprite(a.kind)}" alt=""><span><b>${d.name}</b><small>${a.stock}/${PEN_STOCK} ${d.plural}. ${a.stock >= PEN_STOCK ? 'Full.' : a.progress >= d.need ? `Hungry: needs ${d.feed} feed.` : `Next: ${a.progress}/${d.need} ${word}.`}</small></span>`
+    return `<li class="pen"><img class="spr" src="${Pixel.sprite(a.kind)}" alt=""><span><b>${d.name}</b><small>${a.stock}/${penStock(state)} ${d.plural}. ${a.stock >= penStock(state) ? 'Full.' : a.progress >= d.need ? `Hungry: needs ${d.feed} feed.` : `Next: ${a.progress}/${d.need} ${word}.`}</small></span>`
       + `<button data-collect="${i}" ${a.stock ? '' : 'disabled'}>Collect ${a.stock * d.pay} pips</button></li>`;
   }).join('');
   $('animals').innerHTML = Object.entries(ANIMALS).map(([k, d]) => {
@@ -318,9 +344,13 @@ function render() {
   $('tCloche').setAttribute('aria-pressed', selected === 'cloche');
   $('tCloche').querySelector('b').textContent = `Glass cloche ×${state.cloches}`;
   $('tFertilizer').setAttribute('aria-pressed', selected === 'fertilizer');
+  $('waterCost').textContent = waterPrice(state);
+  $('fertilizerCost').textContent = fertilizerPrice(state);
   $('tGloves').setAttribute('aria-pressed', selected === 'gloves');
   $('tGloves').querySelector('b').textContent = `Harvest gloves ×${state.gloves || 0}`;
   renderBarn(lv);
+  renderSkills();
+  renderNibbles();
   const owned = state.decor || {};
   $('decorSummary').textContent = `Garden shop, ${Object.keys(owned).length} of ${DECOR.length} owned`;
   $('decor').innerHTML = DECOR.map(d => `<button class="decorbtn" data-decor="${d.id}" ${owned[d.id] ? 'disabled' : ''}>${esc(d.name)}<small>${owned[d.id] ? 'In your garden' : `${d.price} pips`}</small></button>`).join('');
@@ -488,6 +518,8 @@ $('tGloves').onclick = () => { if (!state.gloves) { flashHint('Buy gloves first.
 $('tFertilizer').onclick = () => { selected = selected === 'fertilizer' ? null : 'fertilizer'; render(); };
 $('bFeed').onclick = () => { act({ type: 'buyFeed' }); render(); };
 $('bGloves').onclick = () => { act({ type: 'buyGloves' }); render(); };
+$('skills').addEventListener('click', e => { const b = e.target.closest('[data-skill]'); if (b && !b.disabled) { act({ type: 'upgrade', item: b.dataset.skill }); render(); } });
+$('bNotify').onclick = async () => { await Notification.requestPermission(); render(); };
 $('pens').addEventListener('click', e => { const b = e.target.closest('[data-collect]'); if (b && !b.disabled) { act({ type: 'collect', plot: +b.dataset.collect }); render(); } });
 $('animals').addEventListener('click', e => { const b = e.target.closest('[data-animal]'); if (b && !b.disabled) { act({ type: 'buyAnimal', item: b.dataset.animal }); render(); } });
 $('decor').addEventListener('click', e => { const b = e.target.closest('[data-decor]'); if (b && !b.disabled) { act({ type: 'buyDecor', item: b.dataset.decor }); render(); } });
@@ -498,7 +530,7 @@ function setMode(m) {
   state = load(m);
   if (m === 'live' && wallet) api('/api/garden').then(d => { if (mode === 'live' && wallet) { state = d.state; rollPeriods(); processRounds(); render(); } }).catch(e => toast(e.message));
   $('mLive').setAttribute('aria-pressed', m === 'live'); $('mDemo').setAttribute('aria-pressed', m === 'demo');
-  if (m === 'demo') { state.processed = 0; state.pips = 200; addLog('', "Demo garden: Squeektoshi's past rounds replay at 8 seconds each, and you start with 200 pips.", 1); rollPeriods(); }
+  if (m === 'demo') { state.processed = 0; state.pips = 200; addLog('', "Demo garden: Squeektoshi's past rounds replay at 20 seconds each, and you start with 200 pips.", 1); rollPeriods(); }
   else syncLive();
   render();
 }

@@ -102,6 +102,15 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .shop { gap: 20px; }
 .seasonend { color: var(--gold); }
 .weathernote { color: var(--muted); }
+.nibbles { color: var(--cream); }
+.nibbles:empty { display: none; }
+.nibbles.urgent { color: var(--ink); background: var(--gold); padding: 2px 8px; justify-self: start; }
+.skills { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.skill { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; background: var(--panel); padding: 8px 10px; }
+.skill b { display: block; font-weight: 400; }
+.skill small { display: block; font-size: 17px; line-height: 1.1; color: var(--muted); max-width: 62ch; }
+.skill button:disabled { opacity: .6; }
+.notifybtn { margin-top: 6px; }
 .variants { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .variants li { padding: 2px 8px; background: var(--earth); color: var(--muted); }
 .variants li.got { background: var(--gold); color: var(--ink); }

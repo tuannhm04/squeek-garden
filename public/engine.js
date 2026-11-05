@@ -45,6 +45,8 @@ export const ACHIEVEMENTS = {
   produce50: ['Farm stand', 'Collect 50 eggs, cuts of pork or milk cans.'],
   mutant:    ['Odd one out', 'Pick a plant that sprouted as a variant.'],
   variants4: ['Rare collector', 'Pick all four variants: Golden, Crystal, Lunar and Rainbow.'],
+  skilled:   ['Specialist', 'Finish one skill.'],
+  bestpal:   ['Best friends', 'Bring Nibbles to level 5.'],
 };
 
 export const QUESTS = [
@@ -98,6 +100,25 @@ export function weatherAt(round) {
 }
 /** The first round after the current weather spell. */
 export const weatherEnds = round => (Math.floor(round / WEATHER_ROUNDS) + 1) * WEATHER_ROUNDS;
+
+// Skills only lower costs, hold more goods or widen the collection. They never touch points, XP or growth,
+// and every effect has a floor or ceiling, so no level turns pips into more pips without limit.
+export const SKILL_MAX = 5, SKILL_PRICES = [50, 100, 200, 400, 800];
+export const SKILLS = {
+  farming:    { name: 'Farming',    effect: 'Each level makes watering 1 pip cheaper and fertilizer 1 pip cheaper.' },
+  economy:    { name: 'Economy',    effect: 'Each level takes 2 pips off a bag of feed. Every second level lets a pen hold 1 more.' },
+  collection: { name: 'Collection', effect: 'Each level adds 1% to the chance of a variant.' },
+};
+const skill = (S, k) => (S.skills && S.skills[k]) || 0;
+export const waterPrice = S => WATER_PRICE - skill(S, 'farming') < 1 ? 1 : WATER_PRICE - skill(S, 'farming');
+export const fertilizerPrice = S => FERTILIZER_PRICE - skill(S, 'farming');
+export const feedPackPrice = S => FEED_PACK_PRICE - 2 * skill(S, 'economy');
+export const penStock = S => PEN_STOCK + Math.floor(skill(S, 'economy') / 2);
+export const mutationChance = S => MUTATION_CHANCE + skill(S, 'collection') / 100;
+
+// Nibbles, a companion who learns with you. It warns and suggests, and never picks or spends anything.
+export const NIBBLES_LEVELS = [0, 10, 30, 60, 100];
+export const nibblesLevel = S => NIBBLES_LEVELS.filter(t => (S.nibbles || 0) >= t).length;
 
 // Gloves buy time on one plant. They never change its points or what it needs to ripen.
 export const GLOVE_PRICE = 30, GLOVE_WINDOW = 144, MAX_GLOVED = 3;
@@ -247,7 +268,7 @@ export const levelOf = xp => LEVELS.filter(t => xp >= t).length;
 // ---------- seasons and new gardens ----------
 export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0, feed: 0, variants: {} });
+  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0, feed: 0, variants: {}, skills: {}, nibbles: 0 });
 
 /** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
 export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
@@ -326,7 +347,7 @@ export function applyAnimal(a, r, work, S) {
   const d = ANIMALS[a.kind];
   if (classify(work) === d.mood) a.progress++;
   if (a.progress >= d.need) {
-    if (a.stock < PEN_STOCK && (S.feed || 0) >= d.feed) { S.feed -= d.feed; a.stock++; a.progress = 0; }
+    if (a.stock < penStock(S) && (S.feed || 0) >= d.feed) { S.feed -= d.feed; a.stock++; a.progress = 0; }
     else a.progress = d.need; // full or hungry: waits for you
   }
 }
@@ -397,6 +418,7 @@ function harvestPlot(S, i, cur) {
   addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}${comboPips ? `, plus ${comboPips} bonus pips` : ''}.`, cur);
   S.plots[i] = null;
 
+  S.nibbles = (S.nibbles || 0) + 1;
   if (p.gloved) unlock(S, 'gloved', toasts);
   if (p.variant) {
     S.variants = S.variants || {};
@@ -444,6 +466,8 @@ function checkBadges(S, toasts) {
   const kinds = new Set((S.barn || []).filter(Boolean).map(a => a.kind));
   earn('rancher', Object.keys(ANIMALS).every(k => kinds.has(k)));
   earn('produce50', (S.collected || 0) >= 50);
+  earn('skilled', Object.keys(SKILLS).some(k => skill(S, k) >= SKILL_MAX));
+  earn('bestpal', nibblesLevel(S) >= 5);
 }
 
 /**
@@ -494,9 +518,22 @@ function runAction(S, a, cur, roll) {
   }
 
   if (a.type === 'buyFeed') {
-    if (S.pips < FEED_PACK_PRICE) return { error: `A bag of feed costs ${FEED_PACK_PRICE} pips.` };
-    S.pips -= FEED_PACK_PRICE; S.feed = (S.feed || 0) + FEED_PACK;
-    addLog(S, '', `Bought ${FEED_PACK} feed (−${FEED_PACK_PRICE} pips).`, cur);
+    const price = feedPackPrice(S);
+    if (S.pips < price) return { error: `A bag of feed costs ${price} pips.` };
+    S.pips -= price; S.feed = (S.feed || 0) + FEED_PACK;
+    addLog(S, '', `Bought ${FEED_PACK} feed (−${price} pips).`, cur);
+    return done;
+  }
+  if (a.type === 'upgrade') {
+    if (!Object.hasOwn(SKILLS, a.item)) return { error: 'That skill does not exist.' };
+    const level = skill(S, a.item);
+    if (level >= SKILL_MAX) return { error: `${SKILLS[a.item].name} is already at its top level.` };
+    const price = SKILL_PRICES[level];
+    if (S.pips < price) return { error: `That level costs ${price} pips.` };
+    S.pips -= price;
+    S.skills = S.skills || {};
+    S.skills[a.item] = level + 1;
+    addLog(S, 'good', `${SKILLS[a.item].name} reached level ${level + 1} (−${price} pips).`, cur);
     return done;
   }
   if (a.type === 'buyAnimal') {
@@ -519,6 +556,7 @@ function runAction(S, a, cur, roll) {
     const d = ANIMALS[pen.kind], earned = pen.stock * d.pay;
     addLog(S, 'good', `Collected ${pen.stock} ${pen.stock > 1 ? d.plural : d.product} for ${earned} pips.`, cur);
     S.pips += earned; S.collected = (S.collected || 0) + pen.stock; pen.stock = 0;
+    S.nibbles = (S.nibbles || 0) + 1;
     return done;
   }
 
@@ -535,7 +573,7 @@ function runAction(S, a, cur, roll) {
       S.pips -= sd.price;
       S.plots[i] = newPlant(a.seed, cur);
       addLog(S, '', `Plot ${i + 1}: planted ${sd.name} (−${sd.price} pips). It reacts from round ${cur + 1}.`, cur);
-      if (roll < MUTATION_CHANCE) {
+      if (roll < mutationChance(S)) {
         const v = WEATHER[weatherAt(cur)].variant;
         S.plots[i].variant = v;
         addLog(S, 'good', `Plot ${i + 1}: this seed sprouted as a ${VARIANTS[v]} variant!`, cur);
@@ -559,9 +597,9 @@ function runAction(S, a, cur, roll) {
     case 'fertilize':
       if (!p || (p.status !== 'growing' && p.status !== 'ripe')) return { error: 'Fertilizer works on living plants.' };
       if (p.fertilized) return { error: 'That plant is already fertilized.' };
-      if (S.pips < FERTILIZER_PRICE) return { error: `Fertilizer costs ${FERTILIZER_PRICE} pips.` };
-      S.pips -= FERTILIZER_PRICE; p.fertilized = true;
-      addLog(S, '', `Plot ${i + 1}: fertilized ${SEEDS[p.seed].name} (−${FERTILIZER_PRICE} pips). It pays ${Math.round(FERTILIZER_BONUS * 100)}% more pips when picked.`, cur);
+      if (S.pips < fertilizerPrice(S)) return { error: `Fertilizer costs ${fertilizerPrice(S)} pips.` };
+      S.pips -= fertilizerPrice(S); p.fertilized = true;
+      addLog(S, '', `Plot ${i + 1}: fertilized ${SEEDS[p.seed].name} (−${fertilizerPrice(S)} pips). It pays ${Math.round(FERTILIZER_BONUS * 100)}% more pips when picked.`, cur);
       return done;
     case 'glove':
       if (!p || (p.status !== 'growing' && p.status !== 'ripe')) return { error: 'Gloves work on living plants.' };
@@ -580,8 +618,8 @@ function runAction(S, a, cur, roll) {
       if (!p || p.status !== 'growing') return { error: 'Tools work on growing plants.' };
       const settled = S.processed === null ? cur : S.processed; // no round has settled yet on a new chain
       if (settled < S.waterAt) return { error: 'The watering can is still refilling.' };
-      if (S.pips < WATER_PRICE) return { error: `Watering costs ${WATER_PRICE} pips.` };
-      S.pips -= WATER_PRICE;
+      if (S.pips < waterPrice(S)) return { error: `Watering costs ${waterPrice(S)} pips.` };
+      S.pips -= waterPrice(S);
       const ev = water(p, settled);
       S.waterAt = settled + WATER_COOLDOWN;
       addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, cur);
@@ -597,4 +635,41 @@ function runAction(S, a, cur, roll) {
       return done;
   }
   return { error: 'Unknown action.' };
+}
+
+// ---------- Nibbles ----------
+/**
+ * What Nibbles wants to tell you, most urgent first. Each tip is { urgent, key, text }.
+ * Level 1 watches ripe plants, 2 watches plants about to fail, 3 watches the barn and 4 suggests seeds.
+ * lastMood is the mood of the latest settled round, or null.
+ */
+export function nibblesTips(S, cur, lastMood = null) {
+  const level = nibblesLevel(S), settled = S.processed === null ? cur : S.processed, tips = [];
+  S.plots.forEach((p, i) => {
+    if (!p) return;
+    const where = `Plot ${i + 1}: ${SEEDS[p.seed].name}`;
+    if (p.status === 'ripe') {
+      const left = ripeWindow(p) - (settled - p.ripeRound);
+      if (left <= 3) tips.push({ urgent: true, key: `rot-${i}-${p.ripeRound}`, text: `${where} rots in ${left} round${left === 1 ? '' : 's'}. Pick it!` });
+      else tips.push({ urgent: false, key: `ripe-${i}`, text: `${where} is ripe.` });
+    }
+    if (level < 2 || p.status !== 'growing') return;
+    const limit = { zoomflower: 9, comet: 12, twinvine: 12, dreamcap: 15 }[p.seed];
+    if (limit && limit - p.age <= 2) tips.push({ urgent: true, key: `age-${i}-${p.plantedRound}`, text: `${where} wilts in ${limit - p.age} round${limit - p.age === 1 ? '' : 's'}.` });
+    if (p.seed === 'moonmoss' && p.zoomRun >= 1) tips.push({ urgent: true, key: `zoom-${i}-${p.plantedRound}`, text: `${where} wilts after one more zoomies round.` });
+    if (p.seed === 'trotbean' && p.napRun >= 2) tips.push({ urgent: true, key: `nap-${i}-${p.plantedRound}`, text: `${where} wilts after one more nap round.` });
+  });
+  if (level >= 3) {
+    (S.barn || []).forEach((a, i) => {
+      if (!a) return;
+      const d = ANIMALS[a.kind];
+      if (a.stock >= penStock(S)) tips.push({ urgent: false, key: `full-${i}`, text: `Your ${d.name.toLowerCase()} in pen ${i + 1} is full. Collect its goods.` });
+      else if (a.progress >= d.need && (S.feed || 0) < d.feed) tips.push({ urgent: false, key: `hungry-${i}`, text: `Your ${d.name.toLowerCase()} in pen ${i + 1} is hungry. Buy feed.` });
+    });
+  }
+  if (level >= 4 && lastMood && S.plots.slice(0, S.open).some(p => !p)) {
+    const seed = { nap: 'Moonmoss', jog: 'Trotbean', zoom: 'Zoomflower' }[lastMood];
+    tips.push({ urgent: false, key: `seed-${lastMood}`, text: `He just had a ${{ nap: 'nap', jog: 'jog', zoom: 'zoomies' }[lastMood]} round. ${seed} might suit an empty plot.` });
+  }
+  return tips.sort((a, b) => b.urgent - a.urgent);
 }

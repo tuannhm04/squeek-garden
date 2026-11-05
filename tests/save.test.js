@@ -229,3 +229,12 @@ test('variants load, old saves have none, and made-up ones are refused', () => {
   s.plots[0] = { ...newPlant('moonmoss', 1), variant: 'lunar' };
   assert.deepEqual(validateState(s), []);
 });
+
+test('skills and Nibbles load, old saves have none, and impossible ones are refused', () => {
+  assert.deepEqual(validateState({ ...blank(), skills: { farming: 5 }, nibbles: 12 }), []);
+  const old = blank(); delete old.skills; delete old.nibbles;
+  assert.deepEqual(validateState(old), []);
+  for (const change of [{ skills: { farming: 6 } }, { skills: { points: 1 } }, { skills: { farming: 1.5 } }, { nibbles: -1 }]) {
+    assert.ok(validateState({ ...blank(), ...change }).length, JSON.stringify(change));
+  }
+});

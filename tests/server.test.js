@@ -485,6 +485,17 @@ test('repeating a planting cannot roll again', async () => {
   assert.equal(again.body.state.plots[0].variant, undefined);
 });
 
+test('the server sells skills at its own prices and ignores claims in the request', async () => {
+  const env = playEnv(), c = await player(env);
+  const res = await c.call('/api/action', action({ type: 'upgrade', item: 'farming', level: 5, price: 0, skills: { farming: 5 } }));
+  assert.deepEqual([res.status, res.body.state.pips, res.body.state.skills.farming], [200, 10, 1]);
+  assert.equal((await c.call('/api/action', action({ type: 'upgrade', item: 'points' }))).status, 422);
+  assert.equal((await c.call('/api/action', action({ type: 'upgrade', item: 'economy' }))).status, 422);
+  const claim = await c.call('/api/action', action({ type: 'buyCloche', nibbles: 999 }));
+  assert.equal(claim.status, 422, 'only 10 pips left');
+  assert.equal((await c.call('/api/garden')).body.state.nibbles, 0);
+});
+
 test('Squeekchain being down does not stop play', async () => {
   const env = playEnv(), c = await player(env);
   env.fetchUpstream = async () => { throw new Error('offline'); };

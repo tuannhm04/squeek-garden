@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACHIEVEMENTS, ANIMALS, COMBO_BONUS, MUTATION_CHANCE, VARIANTS, VARIANT_BONUS, WEATHER, WEATHER_ROUNDS, weatherAt, weatherEnds, DAILY_CHALLENGES, DECOR, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_PRICE, WATER_PRICE, GLOVE_WINDOW, MAX_GLOVED, PEN_STOCK, applyAnimal, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
+import { SKILLS, SKILL_MAX, SKILL_PRICES, feedPackPrice, fertilizerPrice, mutationChance, nibblesLevel, nibblesTips, penStock, waterPrice, ACHIEVEMENTS, ANIMALS, COMBO_BONUS, MUTATION_CHANCE, VARIANTS, VARIANT_BONUS, WEATHER, WEATHER_ROUNDS, weatherAt, weatherEnds, DAILY_CHALLENGES, DECOR, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_PRICE, WATER_PRICE, GLOVE_WINDOW, MAX_GLOVED, PEN_STOCK, applyAnimal, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
 
 const grow = (seed, works, from = 11) => {
   const p = newPlant(seed, 10);
@@ -503,9 +503,9 @@ test('a decoration needs the price and a real item', () => {
 });
 
 // ---------- badges ----------
-test('there are 25 badges, each with a name and a way to earn it', () => {
+test('there are 27 badges, each with a name and a way to earn it', () => {
   const list = Object.values(ACHIEVEMENTS);
-  assert.equal(list.length, 25);
+  assert.equal(list.length, 27);
   assert.ok(list.every(([name, how]) => name && how));
 });
 
@@ -865,4 +865,180 @@ test('a plant with no variant pays as before and a refused planting cannot mutat
   const poor = shopper(0);
   assert.ok(doAction(poor, { type: 'plant', plot: 0, seed: 'moonmoss' }, 101, 0).error);
   assert.equal(poor.plots[0], null);
+});
+
+// ---------- skills ----------
+const skilled = (skills, pips = 0) => { const S = shopper(pips); S.skills = skills; return S; };
+const upgrade = (S, item) => doAction(S, { type: 'upgrade', item }, 101);
+
+test('a skill goes up one level at a time, at its listed price, and stops at the top', () => {
+  const S = shopper(10000);
+  for (let i = 0; i < SKILL_MAX; i++) {
+    const before = S.pips;
+    assert.equal(upgrade(S, 'farming').error, undefined);
+    assert.equal(before - S.pips, SKILL_PRICES[i]);
+    assert.equal(S.skills.farming, i + 1);
+  }
+  const before = S.pips;
+  assert.ok(upgrade(S, 'farming').error);
+  assert.equal(S.pips, before);
+  assert.equal(S.ach.skilled, true);
+});
+
+test('a skill needs the pips and has to exist', () => {
+  const S = shopper(49);
+  assert.ok(upgrade(S, 'farming').error);
+  assert.equal(S.pips, 49);
+  for (const item of ['points', 'constructor', undefined]) assert.ok(upgrade(shopper(9999), item).error, String(item));
+});
+
+test('Farming lowers costs, never below a floor', () => {
+  assert.deepEqual([waterPrice(shopper(0)), fertilizerPrice(shopper(0))], [5, 10]);
+  assert.deepEqual([waterPrice(skilled({ farming: 2 })), fertilizerPrice(skilled({ farming: 2 }))], [3, 8]);
+  assert.deepEqual([waterPrice(skilled({ farming: 5 })), fertilizerPrice(skilled({ farming: 5 }))], [1, 5]);
+  const S = skilled({ farming: 5 }, 100);
+  S.plots[0] = newPlant('moonmoss', 100);
+  doAction(S, { type: 'water', plot: 0 }, 101);
+  assert.equal(S.pips, 99);
+  doAction(S, { type: 'fertilize', plot: 0 }, 101);
+  assert.equal(S.pips, 94);
+});
+
+test('Economy lowers feed and grows pens within limits', () => {
+  assert.deepEqual([feedPackPrice(shopper(0)), penStock(shopper(0))], [20, 5]);
+  assert.deepEqual([feedPackPrice(skilled({ economy: 5 })), penStock(skilled({ economy: 5 }))], [10, 7]);
+  const S = skilled({ economy: 2 }, 100);
+  doAction(S, { type: 'buyFeed' }, 101);
+  assert.equal(S.pips, 84);
+  const cow = { ...pen('cow'), stock: 5 }, fed = { feed: 99, skills: { economy: 2 } };
+  feed(cow, [700, 700], 101, fed);
+  assert.equal(cow.stock, 6, 'one more than the normal limit, then it stops');
+});
+
+test('even at the top level, each product is still worth more than its feed and no more', () => {
+  const S = skilled({ economy: 5 });
+  for (const [k, d] of Object.entries(ANIMALS)) assert.ok(d.pay > d.feed * feedPackPrice(S) / 5, k);
+});
+
+test('Collection lifts the variant chance to at most 15%', () => {
+  assert.equal(mutationChance(shopper(0)), .1);
+  assert.ok(Math.abs(mutationChance(skilled({ collection: 5 })) - .15) < 1e-9);
+  const S = skilled({ collection: 3 }, 100);
+  doAction(S, { type: 'plant', plot: 0, seed: 'moonmoss' }, 101, .125);
+  assert.ok(S.plots[0].variant);
+  const T = shopper(100);
+  doAction(T, { type: 'plant', plot: 0, seed: 'moonmoss' }, 101, .125);
+  assert.equal(T.plots[0].variant, undefined);
+});
+
+test('skills change nothing about points, XP or how a plant grows', () => {
+  const maxed = { farming: 5, economy: 5, collection: 5 };
+  const A = shopper(0), B = skilled(maxed);
+  A.plots[0] = ripePlant(); B.plots[0] = ripePlant();
+  pick(A, 0); pick(B, 0);
+  assert.deepEqual([A.seasonScore, A.xp, A.pips], [B.seasonScore, B.xp, B.pips]);
+  const a = newPlant('dreamcap', 90), b = newPlant('dreamcap', 90);
+  for (const r of [91, 92, 93]) { applyRound(a, r, 0); applyRound(b, r, 0); }
+  assert.deepEqual(a, b);
+});
+
+test('no action can be repeated to make pips from nothing, even with every skill maxed', () => {
+  const S = skilled({ farming: 5, economy: 5, collection: 5 }, 1000);
+  S.xp = 5000;
+  const start = S.pips;
+  for (const seed of ['moonmoss', 'trotbean', 'zoomflower', 'mileoak', 'comet', 'dreamcap', 'twinvine', 'wheelbloom']) {
+    doAction(S, { type: 'plant', plot: 0, seed }, 101, .99);
+    doAction(S, { type: 'fertilize', plot: 0 }, 101);
+    doAction(S, { type: 'dig', plot: 0 }, 101);
+  }
+  for (const a of [{ type: 'collect', plot: 0 }, { type: 'clear', plot: 0 }, { type: 'harvest', plot: 0 }]) doAction(S, a, 101);
+  assert.ok(S.pips < start);
+});
+
+// ---------- Nibbles ----------
+const withPal = (picks, pips = 0) => { const S = shopper(pips); S.nibbles = picks; return S; };
+
+test('Nibbles levels up from picks and collections, at set marks', () => {
+  assert.deepEqual([0, 9, 10, 29, 30, 60, 99, 100, 500].map(n => nibblesLevel(withPal(n))), [1, 1, 2, 2, 3, 4, 4, 5, 5]);
+  const S = shopper(0);
+  S.plots[0] = ripePlant();
+  pick(S, 0);
+  assert.equal(S.nibbles, 1);
+  const F = farmer();
+  buy(F, 'chicken');
+  F.barn[0].stock = 1;
+  const before = F.nibbles || 0;
+  doAction(F, { type: 'collect', plot: 0 }, 110);
+  assert.equal(F.nibbles, before + 1);
+});
+
+test('reaching level 5 earns the badge', () => {
+  const S = withPal(99);
+  S.plots[0] = ripePlant();
+  pick(S, 0);
+  assert.equal(S.ach.bestpal, true);
+});
+
+test('Nibbles warns when a ripe plant is about to rot, and says so calmly before then', () => {
+  const S = withPal(0);
+  S.processed = 100;
+  S.plots[0] = ripePlant();
+  assert.deepEqual(nibblesTips(S, 101).map(t => [t.urgent, t.text]), [[false, 'Plot 1: Zoomflower is ripe.']]);
+  S.processed = 111;
+  const [tip] = nibblesTips(S, 112);
+  assert.equal(tip.urgent, true);
+  assert.match(tip.text, /rots in 1 round\. Pick it!/);
+});
+
+test('gloves give Nibbles a longer clock to watch', () => {
+  const S = withPal(0);
+  S.processed = 111;
+  S.plots[0] = { ...ripePlant(), gloved: true };
+  assert.equal(nibblesTips(S, 112)[0].urgent, false);
+});
+
+test('wilting warnings start at level 2', () => {
+  const S = withPal(0);
+  S.processed = 100;
+  S.plots[0] = { ...newPlant('zoomflower', 90), age: 8 };
+  S.plots[1] = { ...newPlant('moonmoss', 90), zoomRun: 1 };
+  S.plots[2] = { ...newPlant('trotbean', 90), napRun: 2 };
+  assert.equal(nibblesTips(S, 101).length, 0);
+  S.nibbles = 10;
+  const tips = nibblesTips(S, 101);
+  assert.equal(tips.length, 3);
+  assert.ok(tips.every(t => t.urgent && /wilts/.test(t.text)));
+});
+
+test('barn tips start at level 3, and seed tips at level 4 with room to plant', () => {
+  const S = withPal(10);
+  S.barn = [{ kind: 'chicken', boughtRound: 1, progress: 3, stock: 0 }, { kind: 'cow', boughtRound: 1, progress: 0, stock: 5 }, null];
+  assert.equal(nibblesTips(S, 101, 'nap').length, 0);
+  S.nibbles = 30;
+  assert.deepEqual(nibblesTips(S, 101, 'nap').map(t => t.key).sort(), ['full-1', 'hungry-0']);
+  S.feed = 5;
+  assert.deepEqual(nibblesTips(S, 101, 'nap').map(t => t.key), ['full-1']);
+  S.nibbles = 60;
+  assert.match(nibblesTips(S, 101, 'nap').at(-1).text, /Moonmoss/);
+  assert.match(nibblesTips(S, 101, 'zoom').at(-1).text, /Zoomflower/);
+  assert.equal(nibblesTips(S, 101, null).filter(t => t.key.startsWith('seed')).length, 0);
+  for (let i = 0; i < S.open; i++) S.plots[i] = newPlant('mileoak', 100);
+  assert.equal(nibblesTips(S, 101, 'nap').filter(t => t.key.startsWith('seed')).length, 0);
+});
+
+test('urgent tips come first, and Nibbles never changes the garden', () => {
+  const S = withPal(30);
+  S.processed = 111;
+  S.barn = [{ kind: 'cow', boughtRound: 1, progress: 0, stock: 5 }, null, null];
+  S.plots[0] = ripePlant();
+  const before = JSON.stringify(S);
+  const tips = nibblesTips(S, 112);
+  assert.equal(tips[0].urgent, true);
+  assert.equal(JSON.stringify(S), before);
+});
+
+test('Nibbles copes with a save from before it existed and a brand new garden', () => {
+  const S = blankState(1);
+  delete S.nibbles; delete S.barn;
+  assert.deepEqual(nibblesTips(S, 5), []);
 });

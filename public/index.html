@@ -50,7 +50,7 @@
       <span class="xp"><span class="xpbar"><i id="xpBar"></i></span><small id="xpText"></small></span>
       <div class="modes" role="group" aria-label="Data source">
         <button id="mLive" aria-pressed="true">Live</button>
-        <button id="mDemo" aria-pressed="false" title="Replays past rounds at 8 seconds each">Demo</button>
+        <button id="mDemo" aria-pressed="false" title="Replays past rounds at 20 seconds each">Demo</button>
         <a class="guidelink" href="guide/">Guide</a>
       </div>
       <div class="walletrow">
@@ -69,6 +69,7 @@
       <p class="seasonend" id="seasonEnd"></p>
       <p class="weathernote" id="weatherNote"></p>
       <p class="hint" id="plotHint" role="status"></p>
+      <p class="nibbles" id="nibbles"></p>
       <div id="plots" class="plots"></div>
     </section>
 
@@ -80,9 +81,9 @@
       <section aria-labelledby="h-tools">
         <h2 id="h-tools">Tools</h2>
         <div class="tools">
-          <button id="tWater" class="tool" aria-pressed="false"><img class="ico big" data-icon="can" alt=""><span><b>Watering can</b><small>5 pips, one step of help. <span id="waterState">ready</span></small></span></button>
+          <button id="tWater" class="tool" aria-pressed="false"><img class="ico big" data-icon="can" alt=""><span><b>Watering can</b><small><span id="waterCost">5</span> pips, one step of help. <span id="waterState">ready</span></small></span></button>
           <button id="tCloche" class="tool" aria-pressed="false"><img class="ico big" data-icon="dome" alt=""><span><b>Glass cloche ×0</b><small>Saves a plant once.</small></span></button>
-          <button id="tFertilizer" class="tool" aria-pressed="false"><img class="ico big" data-icon="sack" alt=""><span><b>Fertilizer</b><small>10 pips, 30% more pips when picked.</small></span></button>
+          <button id="tFertilizer" class="tool" aria-pressed="false"><img class="ico big" data-icon="sack" alt=""><span><b>Fertilizer</b><small><span id="fertilizerCost">10</span> pips, 30% more pips when picked.</small></span></button>
           <button id="tGloves" class="tool" aria-pressed="false"><img class="ico big" data-icon="glove" alt=""><span><b>Harvest gloves ×0</b><small>A ripe plant keeps 24 hours.</small></span></button>
           <button id="bCloche" class="buy">Buy cloche, 25 pips</button>
           <button id="bGloves" class="buy">Buy gloves, 30 pips</button>
@@ -97,6 +98,14 @@
     <button id="bFeed" class="buy feedbtn">Buy feed</button>
     <ul id="pens" class="pens"></ul>
     <div id="animals" class="animals"></div>
+  </details>
+
+  <details class="record">
+    <summary>Skills and Nibbles</summary>
+    <p class="note shopnote">Skills lower costs and grow your collection. They never add points or change how plants grow.</p>
+    <ul id="skills" class="skills"></ul>
+    <p class="note" id="nibblesLevel"></p>
+    <button id="bNotify" class="notifybtn" hidden>Let Nibbles send notifications while this tab is open</button>
   </details>
 
   <details class="record">

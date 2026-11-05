@@ -23,7 +23,8 @@ Around the plants:
 - **Levels.** Every harvested point is XP. Levels unlock the pattern seeds above.
 - **Tools.** The watering can gives one step of help to a growing plant and refills after 6 rounds. It costs 5 pips a use. A glass cloche saves a plant from the next thing that would wilt it. Fertilizer costs 10 pips and makes a plant pay 30% more pips when picked. Harvest gloves let up to three plants stay ripe for 24 hours instead of 2.
 - **Compost and decorations.** Clearing a dead plant returns half its seed price. Spare pips buy decorations, which never add points.
-- **Daily quest** for bonus pips, a **herbarium** of every species you have picked, and 25 **achievements**.
+- **Daily quest** for bonus pips, a **herbarium** of every species you have picked, and 27 **achievements**.
+- **Skills and Nibbles.** Three skills lower costs and grow the collection, with limits on every effect. Nibbles, a companion, warns about ripe plants, plants about to wilt and the barn, and suggests seeds. It never picks for you.
 - **Weather and variants.** Weather comes from the round number and changes every hour. A seed has a 10% chance to sprout as the variant of the weather it was planted in, which pays 25% more pips and fills a collection. With a wallet connected, the server rolls that chance, so it can't be predicted from this code. Points never change.
 - **Barn.** Three pens hold chickens, pigs and cows. They eat feed bought with pips and earn pips, never points, from real nap, jog and zoomies rounds.
 - **Live scene.** The wheel at the top spins at Squeektoshi's real RPM; the sky turns to night while he naps, and your own plants grow along the skyline.
@@ -44,7 +45,7 @@ A settlement that closes one round gives that round's exact work. A settlement t
 
 If Squeekchain redeploys and counts rounds from the start again, a garden keeps its plants and progress, moves its round marks to the new count and waits for new rounds. Scores lock every Monday at 00:00 UTC, and the play screen counts down to it. The garden itself never ends.
 
-**Demo mode** replays Squeektoshi's real past rounds at 8 seconds each, so it behaves like he does: mostly naps, with short runs.
+**Demo mode** replays Squeektoshi's real past rounds at 20 seconds each, so it behaves like he does: mostly naps, with short runs.
 
 ## Run it
 

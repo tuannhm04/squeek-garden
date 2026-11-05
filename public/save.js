@@ -1,6 +1,6 @@
 // Live garden persistence. Schema v2 stays untouched under its old key: v3 lives beside it,
 // so going back to the previous build always finds the save it knows.
-import { ANIMALS, DAILY_CHALLENGES, DECOR, MAX_PENS, MAX_PLOTS, SEEDS, START_PLOTS, VARIANTS } from './engine.js';
+import { ANIMALS, DAILY_CHALLENGES, DECOR, MAX_PENS, MAX_PLOTS, SEEDS, SKILLS, SKILL_MAX, START_PLOTS, VARIANTS } from './engine.js';
 
 export const KEY_V2 = 'squeek-garden:live';
 export const KEY_V3 = 'squeek-garden:live:v3';
@@ -42,6 +42,8 @@ export function validateState(s) {
   if (s.gloves !== undefined && !isCount(s.gloves)) out.push('bad gloves');
   if (s.collected !== undefined && !isCount(s.collected)) out.push('bad produce count');
   if (s.feed !== undefined && !isCount(s.feed)) out.push('bad feed');
+  if (s.nibbles !== undefined && !isCount(s.nibbles)) out.push('bad companion');
+  if (s.skills !== undefined && !(isObject(s.skills) && Object.entries(s.skills).every(([k, n]) => Object.hasOwn(SKILLS, k) && Number.isInteger(n) && n >= 0 && n <= SKILL_MAX))) out.push('bad skills');
   if (s.variants !== undefined && !(isObject(s.variants) && Object.entries(s.variants).every(([k, n]) => Object.hasOwn(VARIANTS, k) && isCount(n)))) out.push('bad variant collection');
   if (s.barn !== undefined) {
     const ok = Array.isArray(s.barn) && s.barn.length === MAX_PENS && s.barn.every(a => a === null

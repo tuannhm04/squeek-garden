@@ -79,8 +79,9 @@
       <section aria-labelledby="h-tools">
         <h2 id="h-tools">Tools</h2>
         <div class="tools">
-          <button id="tWater" class="tool" aria-pressed="false"><img class="ico big" data-icon="can" alt=""><span><b>Watering can</b><small>One step of help. <span id="waterState">ready</span></small></span></button>
+          <button id="tWater" class="tool" aria-pressed="false"><img class="ico big" data-icon="can" alt=""><span><b>Watering can</b><small>5 pips, one step of help. <span id="waterState">ready</span></small></span></button>
           <button id="tCloche" class="tool" aria-pressed="false"><img class="ico big" data-icon="dome" alt=""><span><b>Glass cloche ×0</b><small>Saves a plant once.</small></span></button>
+          <button id="tFertilizer" class="tool" aria-pressed="false"><img class="ico big" data-icon="sack" alt=""><span><b>Fertilizer</b><small>10 pips, 30% more pips when picked.</small></span></button>
           <button id="tGloves" class="tool" aria-pressed="false"><img class="ico big" data-icon="glove" alt=""><span><b>Harvest gloves ×0</b><small>A ripe plant keeps 24 hours.</small></span></button>
           <button id="bCloche" class="buy">Buy cloche, 25 pips</button>
           <button id="bGloves" class="buy">Buy gloves, 30 pips</button>
@@ -91,7 +92,8 @@
 
   <details class="record barn" open>
     <summary id="barnSummary">Barn</summary>
-    <p class="note shopnote">Animals earn pips from Squeektoshi's real rounds, never points. Their goods keep until you collect them.</p>
+    <p class="note shopnote">Animals earn pips from Squeektoshi's real rounds, never points. Each product eats feed. A hungry animal just waits, and its goods keep until you collect them.</p>
+    <button id="bFeed" class="buy feedbtn">Buy feed</button>
     <ul id="pens" class="pens"></ul>
     <div id="animals" class="animals"></div>
   </details>

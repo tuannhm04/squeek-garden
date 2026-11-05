@@ -436,13 +436,26 @@ test('the barn runs on the server from real rounds', async () => {
   const bought = (await c.call('/api/action', action({ type: 'buyAnimal', item: 'chicken', stock: 5, price: 0 }))).body.state;
   assert.deepEqual([bought.pips, bought.barn[0].kind, bought.barn[0].stock], [20, 'chicken', 0]);
   assert.equal((await c.call('/api/action', action({ type: 'collect', plot: 0 }))).status, 422);
+  const fed = (await c.call('/api/action', action({ type: 'buyFeed', feed: 999, price: 0 }))).body.state;
+  assert.deepEqual([fed.pips, fed.feed], [0, 5]);
   const r = bought.barn[0].boughtRound;
   env.events = [settled(100, r, 0), ...[1, 2, 3].map(i => settled(r + i - 1, r + i, 0))];
   t += 60000;
   const res = await c.call('/api/action', action({ type: 'collect', plot: 0, pay: 9999 }));
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.equal(res.body.state.pips, 20 + 12);
+  assert.equal(res.body.state.pips, 12);
+  assert.equal(res.body.state.feed, 4);
   assert.equal(res.body.state.seasonScore, 0);
+});
+
+test('the server charges for water and fertilizer whatever the request says', async () => {
+  const env = playEnv(), c = await player(env);
+  const planted = (await c.call('/api/action', action({ type: 'plant', plot: 0, seed: 'moonmoss' }))).body.state;
+  const w = (await c.call('/api/action', action({ type: 'water', plot: 0, price: 0, free: true }))).body.state;
+  const reward = w.daily.items.some(x => x.id === 'water1') ? 10 : 0; // today's challenge may pay for watering
+  assert.equal(w.pips, planted.pips - 5 + reward);
+  const f = (await c.call('/api/action', action({ type: 'fertilize', plot: 0, price: 0 }))).body.state;
+  assert.deepEqual([f.pips, f.plots[0].fertilized], [w.pips - 10, true]);
 });
 
 test('Squeekchain being down does not stop play', async () => {

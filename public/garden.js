@@ -1,4 +1,4 @@
-import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
+import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_BONUS, FERTILIZER_PRICE, WATER_PRICE, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
   MAX_PENS, PEN_STOCK, addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
 import { DEMO_ROUNDS, demoStart } from './demo.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
@@ -131,7 +131,9 @@ function act(a) {
 function plotClick(i) {
   if (i >= state.open) return;
   const p = state.plots[i];
-  if (selected === 'gloves') {
+  if (selected === 'fertilizer') {
+    if (act({ type: 'fertilize', plot: i }) && state.pips < FERTILIZER_PRICE) selected = null;
+  } else if (selected === 'gloves') {
     if (act({ type: 'glove', plot: i }) && !state.gloves) selected = null;
   } else if (selected === 'water' || selected === 'cloche') {
     if (selected === 'water') { if (act({ type: 'water', plot: i })) selected = null; }
@@ -158,7 +160,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 
 let hintTimer = null;
 const hintText = () => {
-  if (selected === 'water') return 'Tap a growing plant to water it.';
+  if (selected === 'water') return `Tap a growing plant to water it for ${WATER_PRICE} pips.`;
+  if (selected === 'fertilizer') return `Tap a living plant. For ${FERTILIZER_PRICE} pips it pays ${Math.round(FERTILIZER_BONUS * 100)}% more pips when picked.`;
   if (selected === 'cloche') return 'Tap a growing plant to cover it.';
   if (selected === 'gloves') return 'Tap a growing or ripe plant. Once ripe it keeps for 24 hours instead of 2.';
   if (selected) return SEEDS[selected].blurb;
@@ -255,11 +258,13 @@ function renderDaily() {
 
 function renderBarn(lv) {
   const barn = state.barn || Array(MAX_PENS).fill(null);
-  $('barnSummary').textContent = `Barn, ${barn.filter(Boolean).length} of ${MAX_PENS} pens used`;
+  const feed = state.feed || 0;
+  $('barnSummary').textContent = `Barn, ${barn.filter(Boolean).length} of ${MAX_PENS} pens used, ${feed} feed`;
+  $('bFeed').textContent = `Buy ${FEED_PACK} feed, ${FEED_PACK_PRICE} pips (you have ${feed})`;
   $('pens').innerHTML = barn.map((a, i) => {
     if (!a) return '<li class="pen empty"><span>Empty pen</span></li>';
     const d = ANIMALS[a.kind], word = { nap: 'naps', jog: 'jogs', zoom: 'zoomies' }[d.mood];
-    return `<li class="pen"><img class="spr" src="${Pixel.sprite(a.kind)}" alt=""><span><b>${d.name}</b><small>${a.stock}/${PEN_STOCK} ${d.plural}. ${a.stock >= PEN_STOCK ? 'Full.' : `Next: ${Math.min(a.progress, d.need)}/${d.need} ${word}.`}</small></span>`
+    return `<li class="pen"><img class="spr" src="${Pixel.sprite(a.kind)}" alt=""><span><b>${d.name}</b><small>${a.stock}/${PEN_STOCK} ${d.plural}. ${a.stock >= PEN_STOCK ? 'Full.' : a.progress >= d.need ? `Hungry: needs ${d.feed} feed.` : `Next: ${a.progress}/${d.need} ${word}.`}</small></span>`
       + `<button data-collect="${i}" ${a.stock ? '' : 'disabled'}>Collect ${a.stock * d.pay} pips</button></li>`;
   }).join('');
   $('animals').innerHTML = Object.entries(ANIMALS).map(([k, d]) => {
@@ -287,10 +292,10 @@ function render() {
     }
     const sd = SEEDS[p.seed], f = progress(p);
     let stat, extra = '';
-    if (p.status === 'ripe') { const { value, diverse } = harvestValue(state, i); stat = `Ripe, pick for ${value}${diverse ? ' (mixed +20%)' : ''}`; extra = `<span class="pstat">rots in ${ripeWindow(p) - (state.processed - p.ripeRound)} rounds${p.gloved ? ', gloved' : ''}</span>`; }
+    if (p.status === 'ripe') { const { value, diverse } = harvestValue(state, i); stat = `Ripe, pick for ${value}${diverse ? ' (mixed +20%)' : ''}`; extra = `<span class="pstat">rots in ${ripeWindow(p) - (state.processed - p.ripeRound)} rounds${p.gloved ? ', gloved' : ''}${p.fertilized ? ', fertilized' : ''}</span>`; }
     else if (p.status === 'wilted') stat = `Wilted, tap to compost for ${Math.ceil(sd.price / 2)}`;
     else if (p.status === 'rotten') stat = `Rotten, tap to compost for ${Math.ceil(sd.price / 2)}`;
-    else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : p.gloved ? '<span class="pstat">Gloved</span>' : ''; }
+    else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : (p.gloved || p.fertilized) ? `<span class="pstat">${[p.gloved && 'Gloved', p.fertilized && 'Fertilized'].filter(Boolean).join(', ')}</span>` : ''; }
     return `<button class="plot ${p.status}${p.cloche ? ' covered' : ''}" data-i="${i}" aria-label="Plot ${i + 1}, ${esc(sd.name)}, ${esc(stat)}">${p.cloche ? icon('dome', 'dome') : ''}${p.status === 'ripe' ? icon('sparkle', 'sparkle') : ''}${plantArt(p.seed, f, p.status)}<span class="plate"><span class="pname">${esc(sd.name)}</span><span class="pstat">${esc(stat)}</span>${p.status === 'growing' ? `<span class="gbar"><i style="width:${Math.round(f * 100)}%"></i></span>` : ''}${extra}</span></button>`;
   }).join('');
   $('plots').classList.toggle('planting', !!SEEDS[selected]);
@@ -303,6 +308,7 @@ function render() {
   $('tWater').setAttribute('aria-pressed', selected === 'water');
   $('tCloche').setAttribute('aria-pressed', selected === 'cloche');
   $('tCloche').querySelector('b').textContent = `Glass cloche ×${state.cloches}`;
+  $('tFertilizer').setAttribute('aria-pressed', selected === 'fertilizer');
   $('tGloves').setAttribute('aria-pressed', selected === 'gloves');
   $('tGloves').querySelector('b').textContent = `Harvest gloves ×${state.gloves || 0}`;
   renderBarn(lv);
@@ -451,6 +457,8 @@ function applyIcons() {
 $('tCloche').onclick = () => { if (!state.cloches) { flashHint('Buy a cloche first.'); return; } selected = selected === 'cloche' ? null : 'cloche'; render(); };
 $('bCloche').onclick = buyCloche;
 $('tGloves').onclick = () => { if (!state.gloves) { flashHint('Buy gloves first.'); return; } selected = selected === 'gloves' ? null : 'gloves'; render(); };
+$('tFertilizer').onclick = () => { selected = selected === 'fertilizer' ? null : 'fertilizer'; render(); };
+$('bFeed').onclick = () => { act({ type: 'buyFeed' }); render(); };
 $('bGloves').onclick = () => { act({ type: 'buyGloves' }); render(); };
 $('pens').addEventListener('click', e => { const b = e.target.closest('[data-collect]'); if (b && !b.disabled) { act({ type: 'collect', plot: +b.dataset.collect }); render(); } });
 $('animals').addEventListener('click', e => { const b = e.target.closest('[data-animal]'); if (b && !b.disabled) { act({ type: 'buyAnimal', item: b.dataset.animal }); render(); } });

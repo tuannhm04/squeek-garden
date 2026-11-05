@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACHIEVEMENTS, ANIMALS, COMBO_BONUS, DAILY_CHALLENGES, DECOR, GLOVE_WINDOW, MAX_GLOVED, PEN_STOCK, applyAnimal, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
+import { ACHIEVEMENTS, ANIMALS, COMBO_BONUS, DAILY_CHALLENGES, DECOR, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_PRICE, WATER_PRICE, GLOVE_WINDOW, MAX_GLOVED, PEN_STOCK, applyAnimal, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
 
 const grow = (seed, works, from = 11) => {
   const p = newPlant(seed, 10);
@@ -573,7 +573,7 @@ test('a badge is announced once', () => {
 const farmer = (pips = 1000, xp = 5000) => { const S = shopper(pips); S.xp = xp; return S; };
 const buy = (S, item, cur = 100) => doAction(S, { type: 'buyAnimal', item }, cur);
 const pen = kind => ({ kind, boughtRound: 100, progress: 0, stock: 0 });
-const feed = (a, works, from = 101) => works.forEach((w, i) => applyAnimal(a, from + i, w));
+const feed = (a, works, from = 101, S = { feed: 999 }) => works.forEach((w, i) => applyAnimal(a, from + i, w, S));
 
 test('each animal earns only on its own mood', () => {
   const c = pen('chicken'), p = pen('pig'), m = pen('cow');
@@ -587,8 +587,8 @@ test('each animal earns only on its own mood', () => {
 
 test('an animal ignores the round it arrived and unknown rounds', () => {
   const a = pen('cow');
-  applyAnimal(a, 100, 700);
-  applyAnimal(a, 101, null);
+  applyAnimal(a, 100, 700, { feed: 99 });
+  applyAnimal(a, 101, null, { feed: 99 });
   assert.equal(a.stock, 0);
 });
 
@@ -642,9 +642,10 @@ test('buying checks the level, the price and free pens', () => {
 
 test('settled rounds feed the barn, and a garden from before the barn still plays', () => {
   const S = farmer();
+  S.feed = 5;
   buy(S, 'chicken', 100);
   settleRounds(S, new Map([[101, { work: 0 }], [102, { work: 0 }], [103, { work: 0 }]]), 103);
-  assert.equal(S.barn[0].stock, 1);
+  assert.deepEqual([S.barn[0].stock, S.feed], [1, 4]);
   const old = shopper(0);
   delete old.barn; delete old.collected;
   assert.equal(settleRounds(old, new Map([[101, { work: 0 }]]), 101), false);
@@ -656,6 +657,7 @@ test('settled rounds feed the barn, and a garden from before the barn still play
 test('a chain restart keeps the barn and its goods', () => {
   const S = oldGarden();
   S.barn = [{ kind: 'chicken', boughtRound: 1300, progress: 2, stock: 3 }, null, null];
+  S.feed = 1;
   syncChain(S, 'new-chain', 165);
   assert.deepEqual(S.barn[0], { kind: 'chicken', boughtRound: 158, progress: 2, stock: 3 });
   settleRounds(S, new Map([[165, { work: 0 }]]), 165);
@@ -692,4 +694,87 @@ test('a chicken gives eggs, a pig gives pork and a cow gives milk', () => {
   doAction(S, { type: 'collect', plot: 0 }, 110);
   assert.match(S.log[0].text, /1 cut of pork for 30 pips/);
   assert.equal(S.barn[0].kind, 'pig', 'the pig stays in its pen');
+});
+
+// ---------- what farming costs ----------
+test('an animal without feed waits, then eats when feed arrives', () => {
+  const a = pen('chicken'), S = { feed: 0 };
+  feed(a, [0, 0, 0, 0, 0], 101, S);
+  assert.deepEqual([a.stock, a.progress], [0, 3], 'hungry, with its progress held');
+  S.feed = 1;
+  feed(a, [100], 110, S);
+  assert.deepEqual([a.stock, a.progress, S.feed], [1, 0, 0]);
+});
+
+test('each animal eats its own amount, and a full pen eats nothing', () => {
+  for (const [kind, cost] of [['chicken', 1], ['pig', 2], ['cow', 4]]) {
+    const a = { ...pen(kind), progress: ANIMALS[kind].need }, S = { feed: 10 };
+    applyAnimal(a, 101, 1, S);
+    assert.equal(S.feed, 10 - cost, kind);
+  }
+  const full = { ...pen('cow'), stock: PEN_STOCK }, S = { feed: 10 };
+  feed(full, [700, 700], 101, S);
+  assert.equal(S.feed, 10);
+});
+
+test('every product still earns more than the feed it eats', () => {
+  const perFeed = FEED_PACK_PRICE / FEED_PACK;
+  for (const [k, d] of Object.entries(ANIMALS)) assert.ok(d.pay > d.feed * perFeed, k);
+});
+
+test('feed comes in bags, needs the pips, and old gardens can buy it', () => {
+  const S = shopper(FEED_PACK_PRICE);
+  delete S.feed;
+  assert.equal(doAction(S, { type: 'buyFeed' }, 101).error, undefined);
+  assert.deepEqual([S.pips, S.feed], [0, FEED_PACK]);
+  assert.ok(doAction(S, { type: 'buyFeed' }, 101).error);
+  assert.equal(S.feed, FEED_PACK);
+});
+
+test('watering costs pips and refuses when you cannot pay', () => {
+  const S = shopper(WATER_PRICE);
+  S.plots[0] = newPlant('moonmoss', 100);
+  assert.equal(doAction(S, { type: 'water', plot: 0 }, 101).error, undefined);
+  assert.deepEqual([S.pips, S.plots[0].growth], [0, 1]);
+  S.waterAt = 0;
+  assert.ok(doAction(S, { type: 'water', plot: 0 }, 101).error);
+  assert.equal(S.plots[0].growth, 1, 'no pips, no water');
+});
+
+test('a refused watering costs nothing', () => {
+  const S = shopper(100);
+  S.plots[0] = newPlant('moonmoss', 100);
+  S.waterAt = 500;
+  assert.ok(doAction(S, { type: 'water', plot: 0 }, 101).error, 'still refilling');
+  assert.ok(doAction(S, { type: 'water', plot: 1 }, 101).error, 'empty plot');
+  assert.equal(S.pips, 100);
+});
+
+test('fertilizer adds pips when picked and leaves points, XP and growth alone', () => {
+  const S = shopper(100);
+  S.plots[0] = ripePlant();
+  assert.equal(doAction(S, { type: 'fertilize', plot: 0 }, 101).error, undefined);
+  assert.equal(S.pips, 100 - FERTILIZER_PRICE);
+  const before = S.pips, { seasonScore, xp } = S;
+  pick(S, 0, 101);
+  assert.equal(S.seasonScore - seasonScore, 70);
+  assert.equal(S.xp - xp, 70);
+  assert.equal(S.pips - before, 70 + Math.round(70 * .3));
+  const a = newPlant('moonmoss', 90), b = { ...newPlant('moonmoss', 90), fertilized: true };
+  for (const r of [91, 92]) { applyRound(a, r, 0); applyRound(b, r, 0); }
+  assert.deepEqual([a.growth, a.status], [b.growth, b.status]);
+});
+
+test('fertilizer works once per plant, only on living plants, and needs the pips', () => {
+  const S = shopper(100);
+  assert.ok(doAction(S, { type: 'fertilize', plot: 0 }, 101).error, 'empty');
+  S.plots[0] = { ...newPlant('moonmoss', 100), status: 'wilted' };
+  assert.ok(doAction(S, { type: 'fertilize', plot: 0 }, 101).error, 'dead');
+  S.plots[0] = newPlant('moonmoss', 100);
+  assert.equal(doAction(S, { type: 'fertilize', plot: 0 }, 101).error, undefined);
+  assert.ok(doAction(S, { type: 'fertilize', plot: 0 }, 101).error, 'twice');
+  const poor = shopper(FERTILIZER_PRICE - 1);
+  poor.plots[0] = newPlant('moonmoss', 100);
+  assert.ok(doAction(poor, { type: 'fertilize', plot: 0 }, 101).error);
+  assert.equal(poor.pips, FERTILIZER_PRICE - 1);
 });

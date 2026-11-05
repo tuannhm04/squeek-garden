@@ -208,3 +208,10 @@ test('a barn loads, old saves have none, and impossible ones are refused', () =>
     assert.ok(validateState({ ...blank(), barn }).length, JSON.stringify(barn));
   }
 });
+
+test('feed loads, old saves have none, and a bad amount is refused', () => {
+  assert.deepEqual(validateState({ ...blank(), feed: 5 }), []);
+  const old = blank(); delete old.feed;
+  assert.deepEqual(validateState(old), []);
+  assert.ok(validateState({ ...blank(), feed: -1 }).length);
+});

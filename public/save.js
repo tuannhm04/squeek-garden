@@ -40,6 +40,7 @@ export function validateState(s) {
   if (s.chain !== undefined && typeof s.chain !== 'string') out.push('bad chain');
   if (s.gloves !== undefined && !isCount(s.gloves)) out.push('bad gloves');
   if (s.collected !== undefined && !isCount(s.collected)) out.push('bad produce count');
+  if (s.feed !== undefined && !isCount(s.feed)) out.push('bad feed');
   if (s.barn !== undefined) {
     const ok = Array.isArray(s.barn) && s.barn.length === MAX_PENS && s.barn.every(a => a === null
       || (isObject(a) && Object.hasOwn(ANIMALS, a.kind) && isCount(a.boughtRound) && isCount(a.progress) && isCount(a.stock)));

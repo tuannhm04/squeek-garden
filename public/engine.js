@@ -71,6 +71,10 @@ export const DAILY_COUNT = 3;
 // Picking different species close together pays extra pips. It never changes points or XP.
 export const COMBO_WINDOW = 3, COMBO_BONUS = [0, 0, .05, .10, .15];
 
+// Farming costs pips. Watering keeps its effect, and fertilizer pays back in pips only:
+// neither makes pips buy points, so a full purse cannot buy a place on the leaderboard.
+export const WATER_PRICE = 5, FERTILIZER_PRICE = 10, FERTILIZER_BONUS = .3, FEED_PACK = 5, FEED_PACK_PRICE = 20;
+
 // Gloves buy time on one plant. They never change its points or what it needs to ripen.
 export const GLOVE_PRICE = 30, GLOVE_WINDOW = 144, MAX_GLOVED = 3;
 export const ripeWindow = p => (p.gloved ? GLOVE_WINDOW : RIPE_WINDOW);
@@ -86,12 +90,12 @@ export const DECOR = [
 ];
 
 // Animals earn pips from his real rounds and never points, so the leaderboard stays about the plants.
-// Products keep until collected and a full pen just stops, so going away costs nothing.
+// Each product eats feed. A hungry animal or a full pen just waits, so going away costs nothing.
 export const MAX_PENS = 3, PEN_STOCK = 5;
 export const ANIMALS = {
-  chicken: { name: 'Chicken', product: 'egg',    plural: 'eggs',     mood: 'nap',  need: 3, pay: 12, price: 40,  level: 1, blurb: 'Lays an egg every 3 nap rounds. Each egg pays 12 pips.' },
-  pig:     { name: 'Pig',     product: 'cut of pork', plural: 'cuts of pork', mood: 'jog',  need: 2, pay: 30, price: 120, level: 2, blurb: 'Gives a cut of pork every 2 jog rounds. Each cut pays 30 pips.' },
-  cow:     { name: 'Cow',     product: 'milk can', plural: 'milk cans', mood: 'zoom', need: 1, pay: 50, price: 250, level: 3, blurb: 'Gives a can of milk every zoomies round. Each can pays 50 pips.' },
+  chicken: { name: 'Chicken', product: 'egg',    plural: 'eggs',     mood: 'nap',  need: 3, pay: 12, feed: 1, price: 40,  level: 1, blurb: 'Lays an egg every 3 nap rounds. Each egg eats 1 feed and pays 12 pips.' },
+  pig:     { name: 'Pig',     product: 'cut of pork', plural: 'cuts of pork', mood: 'jog',  need: 2, pay: 30, feed: 2, price: 120, level: 2, blurb: 'Gives a cut of pork every 2 jog rounds. Each cut eats 2 feed and pays 30 pips.' },
+  cow:     { name: 'Cow',     product: 'milk can', plural: 'milk cans', mood: 'zoom', need: 1, pay: 50, feed: 4, price: 250, level: 3, blurb: 'Gives a can of milk every zoomies round. Each can eats 4 feed and pays 50 pips.' },
 };
 
 // ---------- plant rules (pure) ----------
@@ -219,7 +223,7 @@ export const levelOf = xp => LEVELS.filter(t => xp >= t).length;
 // ---------- seasons and new gardens ----------
 export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0 });
+  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0, feed: 0 });
 
 /** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
 export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
@@ -292,13 +296,14 @@ function advanceCombo(S, seed, value, cur) {
   return Math.round(value * COMBO_BONUS[Math.min(count, COMBO_BONUS.length - 1)]);
 }
 
-/** One settled round for an animal. Rounds with unknown work are skipped. */
-export function applyAnimal(a, r, work) {
+/** One settled round for an animal, eating from S.feed. Rounds with unknown work are skipped. */
+export function applyAnimal(a, r, work, S) {
   if (!a || r <= a.boughtRound || work === null) return;
   const d = ANIMALS[a.kind];
   if (classify(work) === d.mood) a.progress++;
   if (a.progress >= d.need) {
-    if (a.stock < PEN_STOCK) { a.stock++; a.progress = 0; } else a.progress = d.need; // full: waits for you
+    if (a.stock < PEN_STOCK && (S.feed || 0) >= d.feed) { S.feed -= d.feed; a.stock++; a.progress = 0; }
+    else a.progress = d.need; // full or hungry: waits for you
   }
 }
 
@@ -323,7 +328,7 @@ export function settleRounds(S, rounds, latest, historyEnded = false) {
       if (ev) addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, r);
       if (covered && !p.cloche) unlock(S, 'saved', []);
     });
-    (S.barn || []).forEach(a => applyAnimal(a, r, rd.work));
+    (S.barn || []).forEach(a => applyAnimal(a, r, rd.work, S));
     S.processed = r;
   }
   if (missing) addLog(S, 'bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
@@ -363,9 +368,9 @@ function harvestPlot(S, i, cur) {
   S.seasonScore += value; S.pips += value; S.xp += value; S.harvests++;
   S.best = Math.max(S.best, S.seasonScore);
   S.herb[p.seed] = (S.herb[p.seed] || 0) + 1;
-  const comboPips = advanceCombo(S, p.seed, value, cur);
+  const comboPips = advanceCombo(S, p.seed, value, cur) + (p.fertilized ? Math.round(value * FERTILIZER_BONUS) : 0);
   S.pips += comboPips;
-  addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}${comboPips ? `, plus ${comboPips} combo pips` : ''}.`, cur);
+  addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}${comboPips ? `, plus ${comboPips} bonus pips` : ''}.`, cur);
   S.plots[i] = null;
 
   if (p.gloved) unlock(S, 'gloved', toasts);
@@ -454,6 +459,12 @@ function runAction(S, a, cur) {
     return done;
   }
 
+  if (a.type === 'buyFeed') {
+    if (S.pips < FEED_PACK_PRICE) return { error: `A bag of feed costs ${FEED_PACK_PRICE} pips.` };
+    S.pips -= FEED_PACK_PRICE; S.feed = (S.feed || 0) + FEED_PACK;
+    addLog(S, '', `Bought ${FEED_PACK} feed (−${FEED_PACK_PRICE} pips).`, cur);
+    return done;
+  }
   if (a.type === 'buyAnimal') {
     if (!Object.hasOwn(ANIMALS, a.item)) return { error: 'That animal is not for sale.' };
     const d = ANIMALS[a.item];
@@ -505,6 +516,13 @@ function runAction(S, a, cur) {
       }
       S.plots[i] = null;
       return done;
+    case 'fertilize':
+      if (!p || (p.status !== 'growing' && p.status !== 'ripe')) return { error: 'Fertilizer works on living plants.' };
+      if (p.fertilized) return { error: 'That plant is already fertilized.' };
+      if (S.pips < FERTILIZER_PRICE) return { error: `Fertilizer costs ${FERTILIZER_PRICE} pips.` };
+      S.pips -= FERTILIZER_PRICE; p.fertilized = true;
+      addLog(S, '', `Plot ${i + 1}: fertilized ${SEEDS[p.seed].name} (−${FERTILIZER_PRICE} pips). It pays ${Math.round(FERTILIZER_BONUS * 100)}% more pips when picked.`, cur);
+      return done;
     case 'glove':
       if (!p || (p.status !== 'growing' && p.status !== 'ripe')) return { error: 'Gloves work on living plants.' };
       if (p.gloved) return { error: 'That plant already has gloves.' };
@@ -522,6 +540,8 @@ function runAction(S, a, cur) {
       if (!p || p.status !== 'growing') return { error: 'Tools work on growing plants.' };
       const settled = S.processed === null ? cur : S.processed; // no round has settled yet on a new chain
       if (settled < S.waterAt) return { error: 'The watering can is still refilling.' };
+      if (S.pips < WATER_PRICE) return { error: `Watering costs ${WATER_PRICE} pips.` };
+      S.pips -= WATER_PRICE;
       const ev = water(p, settled);
       S.waterAt = settled + WATER_COOLDOWN;
       addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, cur);

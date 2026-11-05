@@ -1,4 +1,4 @@
-import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_BONUS, FERTILIZER_PRICE, WATER_PRICE, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
+import { ACHIEVEMENTS, ANIMALS, CLASS_NAME, VARIANTS, WEATHER, weatherAt, weatherEnds, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_BONUS, FERTILIZER_PRICE, WATER_PRICE, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
   MAX_PENS, PEN_STOCK, addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
 import { DEMO_ROUNDS, demoStart } from './demo.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
@@ -118,7 +118,8 @@ function reportPractice() {
 }
 
 function act(a) {
-  const res = doAction(state, a, src.currentRound());
+  // A connected player's seed is decided by the server, so nothing false flashes up here first.
+  const res = doAction(state, a, src.currentRound(), wallet && mode === 'live' ? 1 : Math.random());
   if (res.error) { flashHint(res.error); return false; }
   if (res.gained) floatText(a.plot, `+${res.gained}`);
   res.toasts.forEach(toast);
@@ -213,11 +214,17 @@ function renderStrip() {
 /** Tells the player when this week's scores lock. The garden itself never ends. */
 function renderSeasonEnd() {
   const el = $('seasonEnd');
-  if (mode !== 'live') { el.textContent = "Demo replays Squeektoshi's past rounds at 8 seconds each. It has no season end."; return; }
+  if (mode !== 'live') { el.textContent = 'Demo replays past rounds at 8 seconds each.'; return; }
   const end = seasonEndsAt(seasonId()), mins = Math.max(0, Math.floor((end - Date.now()) / 60000));
   const left = mins >= 1440 ? `${Math.floor(mins / 1440)}d ${Math.floor(mins % 1440 / 60)}h` : mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
   const when = new Date(end).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  el.textContent = `${live.paused ? 'Squeekchain is paused, so plants wait until rounds resume. ' : ''}This week's scores lock in ${left} (${when}). Your garden carries on after that.`;
+  el.textContent = `${live.paused ? 'Squeekchain is paused, so plants wait. ' : ''}Scores lock in ${left} (${when}).`;
+}
+
+function renderWeather() {
+  const cur = src.currentRound(), now = WEATHER[weatherAt(cur)], next = WEATHER[weatherAt(weatherEnds(cur))];
+  document.body.dataset.weather = weatherAt(cur);
+  $('weatherNote').textContent = `${now.name} until round ${weatherEnds(cur)}${next === now ? '' : `, then ${next.name}`}. Seeds now may sprout ${VARIANTS[now.variant]}.`;
 }
 
 function renderWheel() {
@@ -237,6 +244,7 @@ function renderWheel() {
   $('rWork').textContent = lw == null ? '-' : lw.toLocaleString();
   $('rClass').innerHTML = lw == null ? '-' : `<span class="chip ${classify(lw)}">${icon(MOOD_ICON[classify(lw)])}${CLASS_NAME[classify(lw)]}</span>`;
   renderSeasonEnd();
+  renderWeather();
   const wl = Math.max(0, state.waterAt - state.processed);
   $('waterState').textContent = wl ? `refills in ${wl} round${wl > 1 ? 's' : ''}` : 'ready';
 }
@@ -296,7 +304,8 @@ function render() {
     else if (p.status === 'wilted') stat = `Wilted, tap to compost for ${Math.ceil(sd.price / 2)}`;
     else if (p.status === 'rotten') stat = `Rotten, tap to compost for ${Math.ceil(sd.price / 2)}`;
     else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : (p.gloved || p.fertilized) ? `<span class="pstat">${[p.gloved && 'Gloved', p.fertilized && 'Fertilized'].filter(Boolean).join(', ')}</span>` : ''; }
-    return `<button class="plot ${p.status}${p.cloche ? ' covered' : ''}" data-i="${i}" aria-label="Plot ${i + 1}, ${esc(sd.name)}, ${esc(stat)}">${p.cloche ? icon('dome', 'dome') : ''}${p.status === 'ripe' ? icon('sparkle', 'sparkle') : ''}${plantArt(p.seed, f, p.status)}<span class="plate"><span class="pname">${esc(sd.name)}</span><span class="pstat">${esc(stat)}</span>${p.status === 'growing' ? `<span class="gbar"><i style="width:${Math.round(f * 100)}%"></i></span>` : ''}${extra}</span></button>`;
+    const title = p.variant ? `${VARIANTS[p.variant]} ${sd.name}` : sd.name;
+    return `<button class="plot ${p.status}${p.cloche ? ' covered' : ''}${p.variant ? ` variant-${p.variant}` : ''}" data-i="${i}" aria-label="Plot ${i + 1}, ${esc(title)}, ${esc(stat)}">${p.cloche ? icon('dome', 'dome') : ''}${p.status === 'ripe' ? icon('sparkle', 'sparkle') : ''}${plantArt(p.seed, f, p.status)}<span class="plate"><span class="pname">${esc(title)}</span><span class="pstat">${esc(stat)}</span>${p.status === 'growing' ? `<span class="gbar"><i style="width:${Math.round(f * 100)}%"></i></span>` : ''}${extra}</span></button>`;
   }).join('');
   $('plots').classList.toggle('planting', !!SEEDS[selected]);
   if (!$('plotHint').classList.contains('warn')) $('plotHint').textContent = hintText();
@@ -330,6 +339,8 @@ function render() {
   $('bWallet').textContent = wallet ? `${wallet.slice(0, 6)}…${wallet.slice(-4)}, disconnect` : 'Connect wallet';
   $('bExport').hidden = $('bImport').hidden = !!wallet;
   $('herb').innerHTML = SEED_KEYS.map(k => `<li class="${state.herb[k] ? '' : 'missing'}" title="${SEEDS[k].name}">${plantArt(k, 1, 'ripe')}<span>${state.herb[k] || 0}</span></li>`).join('');
+  const got = state.variants || {};
+  $('variants').innerHTML = Object.entries(VARIANTS).map(([k, name]) => `<li class="variant-${k}${got[k] ? ' got' : ''}">${name} ${got[k] || 0}</li>`).join('');
   $('ach').innerHTML = Object.entries(ACHIEVEMENTS).map(([id, [name, how]]) => `<li class="${state.ach[id] ? 'got' : ''}" title="${esc(how)}"><b>${esc(name)}</b><small>${esc(how)}</small></li>`).join('');
   $('log').innerHTML = state.log.slice(0, 40).map(e => `<li class="${e.kind}"><time>${e.round ? 'R' + e.round : ''}</time><span>${esc(e.text)}</span></li>`).join('');
 }
@@ -363,6 +374,21 @@ function sline(x0, y0, x1, y1, c) {
 }
 function sdisc(cx, cy, r, c) { for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + .3) dot(cx + x, cy + y, c); }
 function cloud(x, y) { sctx.fillStyle = PC.white; sctx.fillRect(x, y, 10, 2); sctx.fillRect(x + 2, y - 1, 5, 1); sctx.fillStyle = '#d4f1ff'; sctx.fillRect(x, y + 2, 10, 1); }
+
+/** Weather drawn over the scene, in the same stepped pixels as the rest of it. */
+function drawWeather(t, still) {
+  const w = weatherAt(src.currentRound()), tick = still ? 0 : Math.floor(t / 90);
+  if (w === 'rainy') {
+    sctx.fillStyle = '#9cc3ff';
+    for (let i = 0; i < SW / 3; i++) { const x = (i * 37 + tick * 2) % SW, y = (i * 13 + tick * 3) % GROUND; sctx.fillRect(x, y, 1, 2); }
+  } else if (w === 'foggy') {
+    sctx.fillStyle = 'rgba(214, 224, 232, .28)';
+    for (const [y, h, shift] of [[20, 4, 11], [29, 5, 23], [38, 5, 7]]) { const off = still ? 0 : Math.floor(t / 700 / shift * 10) % 16; for (let x = -16 + off; x < SW; x += 32) sctx.fillRect(x, y, 22, h); }
+  } else if (w === 'moonlit') {
+    sctx.fillStyle = 'rgba(248, 240, 198, .28)';
+    sctx.fillRect(WX - 39, 5, 18, 18);
+  }
+}
 
 /** Bought decorations stand at the left of the garden, away from the plants and the wheel. */
 function drawDecor(day) {
@@ -420,6 +446,8 @@ function drawScene(t) {
     blit(Pixel.spriteGrid(name), x0 + i * step, GROUND - 14);
     if (p.status === 'ripe' && !still && Math.floor(t / 300 + i) % 2) dot(x0 + i * step + 13, GROUND - 13, PC.yellow);
   });
+
+  drawWeather(t, still);
 
   // wheel on its stand
   const cx = WX, cy = GROUND - 18, R = 15;

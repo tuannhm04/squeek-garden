@@ -458,6 +458,33 @@ test('the server charges for water and fertilizer whatever the request says', as
   assert.deepEqual([f.pips, f.plots[0].fertilized], [w.pips - 10, true]);
 });
 
+test('the server rolls for variants and a request cannot ask for one', async () => {
+  const env = playEnv(), c = await player(env);
+  env.roll = () => .99;
+  const plain = (await c.call('/api/action', action({ type: 'plant', plot: 0, seed: 'moonmoss', variant: 'rainbow', roll: 0 }))).body.state;
+  assert.equal(plain.plots[0].variant, undefined);
+  env.roll = () => 0;
+  const lucky = (await c.call('/api/action', action({ type: 'plant', plot: 1, seed: 'moonmoss', roll: .99 }))).body.state;
+  assert.ok(lucky.plots[1].variant, 'the server roll decides');
+});
+
+test('with no test roll the server still rolls a real chance', async () => {
+  const env = playEnv(), c = await player(env);
+  const res = await c.call('/api/action', action({ type: 'plant', plot: 0, seed: 'moonmoss' }));
+  assert.equal(res.status, 200);
+});
+
+test('repeating a planting cannot roll again', async () => {
+  const env = playEnv(), c = await player(env);
+  env.roll = () => .99;
+  const a = action({ type: 'plant', plot: 0, seed: 'moonmoss' });
+  await c.call('/api/action', a);
+  env.roll = () => 0;
+  const again = await c.call('/api/action', a);
+  assert.equal(again.body.repeated, true);
+  assert.equal(again.body.state.plots[0].variant, undefined);
+});
+
 test('Squeekchain being down does not stop play', async () => {
   const env = playEnv(), c = await player(env);
   env.fetchUpstream = async () => { throw new Error('offline'); };

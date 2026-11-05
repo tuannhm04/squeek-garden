@@ -1,6 +1,6 @@
 // Live garden persistence. Schema v2 stays untouched under its old key: v3 lives beside it,
 // so going back to the previous build always finds the save it knows.
-import { ANIMALS, DAILY_CHALLENGES, DECOR, MAX_PENS, MAX_PLOTS, SEEDS, START_PLOTS } from './engine.js';
+import { ANIMALS, DAILY_CHALLENGES, DECOR, MAX_PENS, MAX_PLOTS, SEEDS, START_PLOTS, VARIANTS } from './engine.js';
 
 export const KEY_V2 = 'squeek-garden:live';
 export const KEY_V3 = 'squeek-garden:live:v3';
@@ -20,6 +20,7 @@ function plantProblem(p, i) {
   if (!STATUSES.has(p.status)) return `plot ${i} has an unknown status`;
   if (!['plantedRound', 'growth', 'age', 'work'].every(k => isCount(p[k]))) return `plot ${i} has a bad counter`;
   if (!isObject(p.seen) || !['nap', 'jog', 'zoom'].every(k => isCount(p.seen[k]))) return `plot ${i} has a bad mood count`;
+  if (p.variant !== undefined && !Object.hasOwn(VARIANTS, p.variant)) return `plot ${i} has an unknown variant`;
   return null;
 }
 
@@ -41,6 +42,7 @@ export function validateState(s) {
   if (s.gloves !== undefined && !isCount(s.gloves)) out.push('bad gloves');
   if (s.collected !== undefined && !isCount(s.collected)) out.push('bad produce count');
   if (s.feed !== undefined && !isCount(s.feed)) out.push('bad feed');
+  if (s.variants !== undefined && !(isObject(s.variants) && Object.entries(s.variants).every(([k, n]) => Object.hasOwn(VARIANTS, k) && isCount(n)))) out.push('bad variant collection');
   if (s.barn !== undefined) {
     const ok = Array.isArray(s.barn) && s.barn.length === MAX_PENS && s.barn.every(a => a === null
       || (isObject(a) && Object.hasOwn(ANIMALS, a.kind) && isCount(a.boughtRound) && isCount(a.progress) && isCount(a.stock)));

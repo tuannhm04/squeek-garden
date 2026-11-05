@@ -185,7 +185,7 @@ async function actionRoute(req, env, now) {
     const { state, rev } = await loadGarden(env, address, now);
     await settle(env, state, now);
     const round = await currentRound(env, now);
-    const res = doAction(state, action, round);
+    const res = doAction(state, action, round, env.roll ? env.roll() : crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32);
     if (res.error) {
       // The browser may have seen a round before this server did.
       if (!forced) { forced = true; await syncRounds(env, now, true).catch(() => {}); continue; }

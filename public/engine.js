@@ -43,6 +43,8 @@ export const ACHIEVEMENTS = {
   compost10: ['Composter', 'Compost 10 dead plants.'],
   rancher:   ['Rancher', 'Keep a chicken, a pig and a cow at once.'],
   produce50: ['Farm stand', 'Collect 50 eggs, cuts of pork or milk cans.'],
+  mutant:    ['Odd one out', 'Pick a plant that sprouted as a variant.'],
+  variants4: ['Rare collector', 'Pick all four variants: Golden, Crystal, Lunar and Rainbow.'],
 };
 
 export const QUESTS = [
@@ -74,6 +76,28 @@ export const COMBO_WINDOW = 3, COMBO_BONUS = [0, 0, .05, .10, .15];
 // Farming costs pips. Watering keeps its effect, and fertilizer pays back in pips only:
 // neither makes pips buy points, so a full purse cannot buy a place on the leaderboard.
 export const WATER_PRICE = 5, FERTILIZER_PRICE = 10, FERTILIZER_BONUS = .3, FEED_PACK = 5, FEED_PACK_PRICE = 20;
+
+// Weather comes from the round number alone, so everyone sees the same sky and can plan for the next hour.
+// It only decides which variant a seed can become. Variants pay extra pips and fill a collection, never points.
+export const WEATHER_ROUNDS = 6, WEATHER_VERSION = 1, MUTATION_CHANCE = .1, VARIANT_BONUS = .25;
+export const WEATHER = {
+  sunny:   { name: 'Clear',   weight: 40, variant: 'golden' },
+  rainy:   { name: 'Rainy',   weight: 25, variant: 'rainbow' },
+  foggy:   { name: 'Foggy',   weight: 20, variant: 'crystal' },
+  moonlit: { name: 'Moonlit', weight: 15, variant: 'lunar' },
+};
+export const VARIANTS = { golden: 'Golden', crystal: 'Crystal', lunar: 'Lunar', rainbow: 'Rainbow' };
+
+/** The weather during a round. */
+export function weatherAt(round) {
+  let x = Math.imul(Math.floor(round / WEATHER_ROUNDS) + 1, 2654435761) ^ Math.imul(WEATHER_VERSION, 40503) | 1;
+  x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+  let pick = (x >>> 0) % 100;
+  for (const [k, w] of Object.entries(WEATHER)) { if (pick < w.weight) return k; pick -= w.weight; }
+  return 'sunny';
+}
+/** The first round after the current weather spell. */
+export const weatherEnds = round => (Math.floor(round / WEATHER_ROUNDS) + 1) * WEATHER_ROUNDS;
 
 // Gloves buy time on one plant. They never change its points or what it needs to ripen.
 export const GLOVE_PRICE = 30, GLOVE_WINDOW = 144, MAX_GLOVED = 3;
@@ -223,7 +247,7 @@ export const levelOf = xp => LEVELS.filter(t => xp >= t).length;
 // ---------- seasons and new gardens ----------
 export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0, feed: 0 });
+  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0, barn: [null, null, null], collected: 0, feed: 0, variants: {} });
 
 /** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
 export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
@@ -368,12 +392,18 @@ function harvestPlot(S, i, cur) {
   S.seasonScore += value; S.pips += value; S.xp += value; S.harvests++;
   S.best = Math.max(S.best, S.seasonScore);
   S.herb[p.seed] = (S.herb[p.seed] || 0) + 1;
-  const comboPips = advanceCombo(S, p.seed, value, cur) + (p.fertilized ? Math.round(value * FERTILIZER_BONUS) : 0);
+  const comboPips = advanceCombo(S, p.seed, value, cur) + (p.fertilized ? Math.round(value * FERTILIZER_BONUS) : 0) + (p.variant ? Math.round(value * VARIANT_BONUS) : 0);
   S.pips += comboPips;
   addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}${comboPips ? `, plus ${comboPips} bonus pips` : ''}.`, cur);
   S.plots[i] = null;
 
   if (p.gloved) unlock(S, 'gloved', toasts);
+  if (p.variant) {
+    S.variants = S.variants || {};
+    S.variants[p.variant] = (S.variants[p.variant] || 0) + 1;
+    unlock(S, 'mutant', toasts);
+    if (Object.keys(VARIANTS).every(v => S.variants[v])) unlock(S, 'variants4', toasts);
+  }
   const q = S.quest, qd = q && QUESTS.find(x => x.id === q.id);
   if (qd && !q.done && qd.test({ seed: p.seed, diverse })) {
     q.progress++;
@@ -416,14 +446,18 @@ function checkBadges(S, toasts) {
   earn('produce50', (S.collected || 0) >= 50);
 }
 
-/** Applies one action, checking every rule. Returns { error } or { toasts, gained? }. Input may come from anyone. */
-export function doAction(S, a, cur) {
-  const res = runAction(S, a, cur);
+/**
+ * Applies one action, checking every rule. Returns { error } or { toasts, gained? }. Input may come from anyone.
+ * roll is a random number from 0 to 1 for a seed's chance to mutate. The server supplies its own, so a
+ * connected player's plants cannot be predicted from this public code or asked for in a request.
+ */
+export function doAction(S, a, cur, roll = Math.random()) {
+  const res = runAction(S, a, cur, roll);
   if (!res.error) checkBadges(S, res.toasts);
   return res;
 }
 
-function runAction(S, a, cur) {
+function runAction(S, a, cur, roll) {
   const done = { toasts: [] };
   if (!a || typeof a.type !== 'string') return { error: 'Unknown action.' };
   if (a.type === 'buyPlot') {
@@ -501,6 +535,12 @@ function runAction(S, a, cur) {
       S.pips -= sd.price;
       S.plots[i] = newPlant(a.seed, cur);
       addLog(S, '', `Plot ${i + 1}: planted ${sd.name} (−${sd.price} pips). It reacts from round ${cur + 1}.`, cur);
+      if (roll < MUTATION_CHANCE) {
+        const v = WEATHER[weatherAt(cur)].variant;
+        S.plots[i].variant = v;
+        addLog(S, 'good', `Plot ${i + 1}: this seed sprouted as a ${VARIANTS[v]} variant!`, cur);
+        done.toasts.push(`A ${VARIANTS[v]} ${sd.name} sprouted!`);
+      }
       advanceDaily(S, 'plant', { seed: a.seed }, cur, done.toasts);
       return done;
     }

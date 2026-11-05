@@ -215,3 +215,17 @@ test('feed loads, old saves have none, and a bad amount is refused', () => {
   assert.deepEqual(validateState(old), []);
   assert.ok(validateState({ ...blank(), feed: -1 }).length);
 });
+
+test('variants load, old saves have none, and made-up ones are refused', () => {
+  assert.deepEqual(validateState({ ...blank(), variants: { golden: 2 } }), []);
+  const old = blank(); delete old.variants;
+  assert.deepEqual(validateState(old), []);
+  assert.ok(validateState({ ...blank(), variants: { diamond: 1 } }).length);
+  assert.ok(validateState({ ...blank(), variants: { golden: -1 } }).length);
+  const s = blank();
+  s.plots = [...s.plots];
+  s.plots[0] = { ...newPlant('moonmoss', 1), variant: 'diamond' };
+  assert.ok(validateState(s).length);
+  s.plots[0] = { ...newPlant('moonmoss', 1), variant: 'lunar' };
+  assert.deepEqual(validateState(s), []);
+});

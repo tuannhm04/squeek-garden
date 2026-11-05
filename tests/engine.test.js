@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ACHIEVEMENTS, ANIMALS, COMBO_BONUS, DAILY_CHALLENGES, DECOR, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_PRICE, WATER_PRICE, GLOVE_WINDOW, MAX_GLOVED, PEN_STOCK, applyAnimal, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
+import { ACHIEVEMENTS, ANIMALS, COMBO_BONUS, MUTATION_CHANCE, VARIANTS, VARIANT_BONUS, WEATHER, WEATHER_ROUNDS, weatherAt, weatherEnds, DAILY_CHALLENGES, DECOR, FEED_PACK, FEED_PACK_PRICE, FERTILIZER_PRICE, WATER_PRICE, GLOVE_WINDOW, MAX_GLOVED, PEN_STOCK, applyAnimal, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
 
 const grow = (seed, works, from = 11) => {
   const p = newPlant(seed, 10);
@@ -503,9 +503,9 @@ test('a decoration needs the price and a real item', () => {
 });
 
 // ---------- badges ----------
-test('there are 23 badges, each with a name and a way to earn it', () => {
+test('there are 25 badges, each with a name and a way to earn it', () => {
   const list = Object.values(ACHIEVEMENTS);
-  assert.equal(list.length, 23);
+  assert.equal(list.length, 25);
   assert.ok(list.every(([name, how]) => name && how));
 });
 
@@ -777,4 +777,92 @@ test('fertilizer works once per plant, only on living plants, and needs the pips
   poor.plots[0] = newPlant('moonmoss', 100);
   assert.ok(doAction(poor, { type: 'fertilize', plot: 0 }, 101).error);
   assert.equal(poor.pips, FERTILIZER_PRICE - 1);
+});
+
+// ---------- weather ----------
+test('the same round always has the same weather, for the length of a spell', () => {
+  for (let r = 0; r < 600; r += 7) assert.equal(weatherAt(r), weatherAt(r));
+  assert.equal(weatherAt(WEATHER_ROUNDS), weatherAt(WEATHER_ROUNDS * 2 - 1));
+  assert.equal(WEATHER_ROUNDS, 6, 'six rounds is an hour');
+});
+
+test('all four kinds of weather come up, roughly in their shares', () => {
+  const count = {};
+  const spells = 2000;
+  for (let i = 0; i < spells; i++) { const w = weatherAt(i * WEATHER_ROUNDS); count[w] = (count[w] || 0) + 1; }
+  for (const [k, w] of Object.entries(WEATHER)) {
+    const share = (count[k] || 0) / spells * 100;
+    assert.ok(Math.abs(share - w.weight) < 8, `${k}: ${share}% against ${w.weight}%`);
+  }
+});
+
+test('weather does not simply repeat in a short pattern', () => {
+  const seq = Array.from({ length: 48 }, (_, i) => weatherAt(i * WEATHER_ROUNDS));
+  assert.ok(new Set(seq).size === 4);
+  let changes = 0;
+  for (let i = 1; i < seq.length; i++) if (seq[i] !== seq[i - 1]) changes++;
+  assert.ok(changes > 15, `${changes} changes in 48 hours`);
+});
+
+test('a spell ends at the next multiple of six rounds', () => {
+  assert.equal(weatherEnds(0), 6);
+  assert.equal(weatherEnds(5), 6);
+  assert.equal(weatherEnds(6), 12);
+});
+
+test('every kind of weather has its own variant', () => {
+  const v = Object.values(WEATHER).map(w => w.variant);
+  assert.equal(new Set(v).size, 4);
+  v.forEach(x => assert.ok(VARIANTS[x]));
+});
+
+// ---------- variants ----------
+const roundWith = kind => { for (let r = 0; r < 6000; r++) if (weatherAt(r) === kind) return r; throw new Error(kind); };
+
+test('a seed sprouts a variant only under the chance, of the weather it was planted in', () => {
+  for (const [kind, w] of Object.entries(WEATHER)) {
+    const S = shopper(100), cur = roundWith(kind);
+    doAction(S, { type: 'plant', plot: 0, seed: 'moonmoss' }, cur, MUTATION_CHANCE - .001);
+    assert.equal(S.plots[0].variant, w.variant, kind);
+    doAction(S, { type: 'plant', plot: 1, seed: 'moonmoss' }, cur, MUTATION_CHANCE);
+    assert.equal(S.plots[1].variant, undefined);
+  }
+});
+
+test('a variant grows by the same rules', () => {
+  const a = newPlant('moonmoss', 90), b = { ...newPlant('moonmoss', 90), variant: 'lunar' };
+  for (const r of [91, 92, 93, 94]) { applyRound(a, r, 0); applyRound(b, r, 0); }
+  assert.deepEqual([a.status, a.growth], [b.status, b.growth]);
+});
+
+test('a variant pays extra pips, never points or XP, and fills the collection', () => {
+  const S = shopper(0);
+  S.plots[0] = { ...ripePlant(), variant: 'golden' };
+  const { value } = harvestValue(S, 0);
+  const { seasonScore, xp } = S;
+  pick(S, 0);
+  assert.equal(S.seasonScore - seasonScore, value);
+  assert.equal(S.xp - xp, value);
+  assert.equal(S.pips, value + Math.round(value * VARIANT_BONUS));
+  assert.equal(S.variants.golden, 1);
+  assert.equal(S.ach.mutant, true);
+  assert.equal(S.ach.variants4, undefined);
+});
+
+test('picking all four variants earns the collector badge', () => {
+  const S = shopper(0);
+  S.variants = { golden: 1, crystal: 2, lunar: 1 };
+  S.plots[0] = { ...ripePlant(), variant: 'rainbow' };
+  pick(S, 0);
+  assert.equal(S.ach.variants4, true);
+});
+
+test('a plant with no variant pays as before and a refused planting cannot mutate', () => {
+  const S = shopper(0);
+  S.plots[0] = ripePlant();
+  pick(S, 0);
+  assert.equal(S.pips, 70);
+  const poor = shopper(0);
+  assert.ok(doAction(poor, { type: 'plant', plot: 0, seed: 'moonmoss' }, 101, 0).error);
+  assert.equal(poor.plots[0], null);
 });

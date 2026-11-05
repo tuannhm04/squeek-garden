@@ -46,6 +46,7 @@ const leaf = (P, x, y, dir) => { P.px(x, y, C.leaf); P.px(x + dir, y, C.leaf); P
 const stem = (P, top) => P.line(8, 15, 8, top, C.leafDark);
 
 const SPRITES = {
+  glove(P) { P.rect(2, 2, 1, 3, C.gold); P.rect(3, 1, 1, 4, C.gold); P.rect(4, 1, 1, 4, C.gold); P.rect(5, 2, 1, 3, C.gold); P.px(6, 4, C.gold); P.rect(2, 5, 4, 2, C.wood); P.outline(); },
   sprout(P) { stem(P, 11); leaf(P, 7, 11, -1); leaf(P, 9, 11, 1); P.outline(); },
   young(P) {
     stem(P, 5); leaf(P, 7, 12, -1); leaf(P, 9, 10, 1); leaf(P, 7, 8, -1);
@@ -128,7 +129,7 @@ const SPRITES = {
     [[3, 1], [7, 4], [1, 3]].forEach(([x, y]) => P.px(x, y, C.soilLight));
   },
 };
-const SIZES = { moon: 8, paw: 8, bolt: 8, coin: 8, can: 8, dome: 8, sparkle: 7, soil: 8 };
+const SIZES = { moon: 8, paw: 8, bolt: 8, coin: 8, can: 8, dome: 8, sparkle: 7, soil: 8, glove: 8 };
 
 // ---------- hamster frames (13x9) ----------
 const HAMSTER = {

@@ -28,6 +28,19 @@ export const ACHIEVEMENTS = {
   herbarium: ['Full herbarium', 'Pick every species at least once.'],
   fullbed:   ['Full bed', 'Unlock all 9 plots.'],
   week500:   ['Green thumb', 'Score 500 in one week.'],
+  pick10:    ['Green fingers', 'Pick 10 plants.'],
+  pick50:    ['Market gardener', 'Pick 50 plants.'],
+  pick200:   ['Harvest legend', 'Pick 200 plants.'],
+  combo3:    ['Hat trick', 'Reach a combo of 3 plants.'],
+  combo5:    ['Bumper crop', 'Reach a combo of 5 plants.'],
+  daily3:    ['Full day', 'Finish all three daily challenges in one day.'],
+  week1000:  ['Golden thumb', 'Score 1,000 in one week.'],
+  level5:    ['Master gardener', 'Reach level 5.'],
+  pips1000:  ['Full purse', 'Hold 1,000 pips.'],
+  saved:     ['Close call', 'Let a cloche save a plant.'],
+  gloved:    ['Soft hands', 'Pick a plant you put gloves on.'],
+  decor3:    ['Landscaper', 'Own 3 garden decorations.'],
+  compost10: ['Composter', 'Compost 10 dead plants.'],
 };
 
 export const QUESTS = [
@@ -56,11 +69,25 @@ export const DAILY_COUNT = 3;
 // Picking different species close together pays extra pips. It never changes points or XP.
 export const COMBO_WINDOW = 3, COMBO_BONUS = [0, 0, .05, .10, .15];
 
+// Gloves buy time on one plant. They never change its points or what it needs to ripen.
+export const GLOVE_PRICE = 30, GLOVE_WINDOW = 144, MAX_GLOVED = 3;
+export const ripeWindow = p => (p.gloved ? GLOVE_WINDOW : RIPE_WINDOW);
+
+// Decorations only change how the garden looks, so spare pips can never buy points.
+export const DECOR = [
+  { id: 'flag',      name: 'Garden flag', price: 100 },
+  { id: 'fence',     name: 'Picket fence', price: 200 },
+  { id: 'lantern',   name: 'Lantern',     price: 400 },
+  { id: 'gnome',     name: 'Garden gnome', price: 700 },
+  { id: 'scarecrow', name: 'Scarecrow',   price: 1200 },
+  { id: 'pond',      name: 'Little pond', price: 2000 },
+];
+
 // ---------- plant rules (pure) ----------
 export const newPlant = (seed, round) => ({ seed, plantedRound: round, status: 'growing', growth: 0, age: 0, work: 0,
   zoomRun: 0, napRun: 0, lastClass: null, lastWork: 0, seen: { nap: 0, jog: 0, zoom: 0 }, cloche: false, ripeRound: null });
 
-function ripen(p, r) { p.status = 'ripe'; p.ripeRound = r; return ['good', `${SEEDS[p.seed].name} is ripe. Pick it within ${RIPE_WINDOW} rounds.`]; }
+function ripen(p, r) { p.status = 'ripe'; p.ripeRound = r; return ['good', `${SEEDS[p.seed].name} is ripe. Pick it within ${ripeWindow(p)} rounds.`]; }
 function wilt(p, why) {
   if (p.cloche) {
     p.cloche = false; p.zoomRun = 0; p.napRun = 0; p.age = 0;
@@ -73,7 +100,7 @@ function wilt(p, why) {
 export function applyRound(p, r, work) {
   if (!p || r <= p.plantedRound) return null;
   if (p.status === 'ripe') {
-    if (r - p.ripeRound >= RIPE_WINDOW) { p.status = 'rotten'; return ['bad', `${SEEDS[p.seed].name} rotted before it was picked.`]; }
+    if (r - p.ripeRound >= ripeWindow(p)) { p.status = 'rotten'; return ['bad', `${SEEDS[p.seed].name} rotted before it was picked.`]; }
     return null;
   }
   if (p.status !== 'growing') return null;
@@ -181,7 +208,7 @@ export const levelOf = xp => LEVELS.filter(t => xp >= t).length;
 // ---------- seasons and new gardens ----------
 export const seasonId = (nowMs = Date.now()) => Math.floor((nowMs / 1000 - 345600) / 604800); // weeks from Monday 00:00 UTC
 export const blankState = (season = seasonId()) => ({ v: 3, plots: Array(MAX_PLOTS).fill(null), open: START_PLOTS, processed: null, season, seasonScore: 0, best: 0,
-  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null });
+  harvests: 0, pips: 60, xp: 0, cloches: 0, waterAt: 0, herb: {}, ach: {}, quest: null, log: [], daily: null, combo: null, gloves: 0, decor: {}, composted: 0 });
 
 /** When a season's scores lock, in milliseconds: the Monday 00:00 UTC that follows it. */
 export const seasonEndsAt = id => ((id + 1) * 604800 + 345600) * 1000;
@@ -269,7 +296,12 @@ export function settleRounds(S, rounds, latest, historyEnded = false) {
     if (rd.batch && r === rd.batch.first && S.plots.some(p => p && p.status === 'growing')) {
       addLog(S, '', `Rounds ${rd.batch.first}-${rd.batch.last} settled together, so their work per round is unknown. Growing plants waited.`, r);
     }
-    S.plots.forEach((p, i) => { const ev = applyRound(p, r, rd.work); if (ev) addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, r); });
+    S.plots.forEach((p, i) => {
+      const covered = !!(p && p.cloche);
+      const ev = applyRound(p, r, rd.work);
+      if (ev) addLog(S, ev[0], `Plot ${i + 1}: ${ev[1]}`, r);
+      if (covered && !p.cloche) unlock(S, 'saved', []);
+    });
     S.processed = r;
   }
   if (missing) addLog(S, 'bad', `${missing} old rounds are gone from the API history. Growing plants waited.`, null);
@@ -313,6 +345,7 @@ function harvestPlot(S, i, cur) {
   addLog(S, 'good', `Plot ${i + 1}: picked ${SEEDS[p.seed].name} for ${value} pts and ${value} pips${diverse ? ' (mixed bed +20%)' : ''}${comboPips ? `, plus ${comboPips} combo pips` : ''}.`, cur);
   S.plots[i] = null;
 
+  if (p.gloved) unlock(S, 'gloved', toasts);
   const q = S.quest, qd = q && QUESTS.find(x => x.id === q.id);
   if (qd && !q.done && qd.test({ seed: p.seed, diverse })) {
     q.progress++;
@@ -336,8 +369,30 @@ function harvestPlot(S, i, cur) {
   return { toasts, gained: value };
 }
 
+/** The badges that depend on totals rather than on one moment. */
+function checkBadges(S, toasts) {
+  const earn = (id, ok) => { if (ok) unlock(S, id, toasts); };
+  earn('pick10', S.harvests >= 10);
+  earn('pick50', S.harvests >= 50);
+  earn('pick200', S.harvests >= 200);
+  earn('combo3', !!S.combo && S.combo.count >= 3);
+  earn('combo5', !!S.combo && S.combo.count >= 5);
+  earn('daily3', !!S.daily && S.daily.items.length > 0 && S.daily.items.every(x => x.done));
+  earn('week1000', S.seasonScore >= 1000);
+  earn('level5', levelOf(S.xp) >= 5);
+  earn('pips1000', S.pips >= 1000);
+  earn('decor3', Object.keys(S.decor || {}).length >= 3);
+  earn('compost10', (S.composted || 0) >= 10);
+}
+
 /** Applies one action, checking every rule. Returns { error } or { toasts, gained? }. Input may come from anyone. */
 export function doAction(S, a, cur) {
+  const res = runAction(S, a, cur);
+  if (!res.error) checkBadges(S, res.toasts);
+  return res;
+}
+
+function runAction(S, a, cur) {
   const done = { toasts: [] };
   if (!a || typeof a.type !== 'string') return { error: 'Unknown action.' };
   if (a.type === 'buyPlot') {
@@ -353,6 +408,23 @@ export function doAction(S, a, cur) {
     if (S.pips < CLOCHE_PRICE) return { error: `A cloche costs ${CLOCHE_PRICE} pips.` };
     S.pips -= CLOCHE_PRICE; S.cloches++;
     addLog(S, '', `Bought a glass cloche (−${CLOCHE_PRICE} pips).`, cur);
+    return done;
+  }
+
+  if (a.type === 'buyGloves') {
+    if (S.pips < GLOVE_PRICE) return { error: `Gloves cost ${GLOVE_PRICE} pips.` };
+    S.pips -= GLOVE_PRICE; S.gloves = (S.gloves || 0) + 1;
+    addLog(S, '', `Bought harvest gloves (−${GLOVE_PRICE} pips).`, cur);
+    return done;
+  }
+  if (a.type === 'buyDecor') {
+    const d = DECOR.find(x => x.id === a.item);
+    if (!d) return { error: 'That decoration is not for sale.' };
+    S.decor = S.decor || {};
+    if (S.decor[d.id]) return { error: `You already have the ${d.name.toLowerCase()}.` };
+    if (S.pips < d.price) return { error: `The ${d.name.toLowerCase()} costs ${d.price} pips.` };
+    S.pips -= d.price; S.decor[d.id] = true;
+    addLog(S, 'good', `Added a ${d.name.toLowerCase()} to the garden (−${d.price} pips).`, cur);
     return done;
   }
 
@@ -377,7 +449,20 @@ export function doAction(S, a, cur) {
       return harvestPlot(S, i, cur);
     case 'clear':
       if (!p || (p.status !== 'wilted' && p.status !== 'rotten')) return { error: 'There is nothing to clear.' };
+      {
+        const back = Math.ceil(SEEDS[p.seed].price / 2); // always less than the seed cost, so it can't be farmed
+        S.pips += back; S.composted = (S.composted || 0) + 1;
+        addLog(S, '', `Plot ${i + 1}: composted ${SEEDS[p.seed].name} for ${back} pips.`, cur);
+      }
       S.plots[i] = null;
+      return done;
+    case 'glove':
+      if (!p || (p.status !== 'growing' && p.status !== 'ripe')) return { error: 'Gloves work on living plants.' };
+      if (p.gloved) return { error: 'That plant already has gloves.' };
+      if ((S.gloves || 0) < 1) return { error: 'Buy gloves first.' };
+      if (S.plots.filter(x => x && x.gloved && (x.status === 'growing' || x.status === 'ripe')).length >= MAX_GLOVED) return { error: `Only ${MAX_GLOVED} plants can have gloves at once.` };
+      S.gloves--; p.gloved = true;
+      addLog(S, '', `Plot ${i + 1}: put gloves on ${SEEDS[p.seed].name}. Once ripe it keeps for ${GLOVE_WINDOW} rounds.`, cur);
       return done;
     case 'dig':
       if (!p || p.status !== 'growing') return { error: 'There is nothing to dig up.' };

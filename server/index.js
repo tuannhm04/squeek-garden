@@ -175,7 +175,7 @@ async function actionRoute(req, env, now) {
   await limit(env, `action:${address}`, 120, 60, now);
   const body = await req.json();
   if (typeof body.id !== 'string' || !/^[\w-]{8,64}$/.test(body.id)) throw new Refused(400, 'That action has no valid id.');
-  const action = { type: body.type, plot: body.plot, seed: body.seed };
+  const action = { type: body.type, plot: body.plot, seed: body.seed, item: body.item };
   const seen = await env.DB.prepare('SELECT 1 AS yes FROM game_actions WHERE address = ? AND id = ?').bind(address, body.id).first();
   if (seen) return json({ state: (await loadGarden(env, address, now)).state, repeated: true });
 

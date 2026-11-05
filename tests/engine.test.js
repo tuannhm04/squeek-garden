@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COMBO_BONUS, DAILY_CHALLENGES, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
+import { ACHIEVEMENTS, COMBO_BONUS, DAILY_CHALLENGES, DECOR, GLOVE_WINDOW, MAX_GLOVED, applyRound, blankState, classify, dailyFor, doAction, harvestValue, newPlant, rollPeriods, rollSeason, seasonEndsAt, seasonId, settleRounds, syncChain, water } from '../public/engine.js';
 
 const grow = (seed, works, from = 11) => {
   const p = newPlant(seed, 10);
@@ -405,4 +405,166 @@ test('a chain restart ends a running combo and keeps the daily challenges', () =
   syncChain(S, 'new-chain', 165);
   assert.equal(S.combo, null);
   assert.equal(S.daily.items[0].progress, 2);
+});
+
+// ---------- gloves ----------
+const ripePlant = (seed = 'zoomflower') => ({ ...newPlant(seed, 90), status: 'ripe', ripeRound: 100 });
+const shopper = pips => { const S = blankState(1); S.processed = 100; S.pips = pips; return S; };
+
+test('gloves stretch a ripe plant from 12 rounds to 144', () => {
+  const plain = ripePlant(), gloved = { ...ripePlant(), gloved: true };
+  applyRound(plain, 112, 0); applyRound(gloved, 112, 0);
+  assert.equal(plain.status, 'rotten');
+  assert.equal(gloved.status, 'ripe');
+  applyRound(gloved, 100 + GLOVE_WINDOW - 1, 0);
+  assert.equal(gloved.status, 'ripe');
+  applyRound(gloved, 100 + GLOVE_WINDOW, 0);
+  assert.equal(gloved.status, 'rotten');
+});
+
+test('gloves change nothing about points or how a plant grows', () => {
+  const S = shopper(100);
+  S.plots[0] = { ...ripePlant(), gloved: true };
+  const before = harvestValue(S, 0);
+  assert.equal(before.value, 70);
+  const a = newPlant('moonmoss', 90), b = { ...newPlant('moonmoss', 90), gloved: true };
+  for (const r of [91, 92, 93, 94]) { applyRound(a, r, 0); applyRound(b, r, 0); }
+  assert.deepEqual([a.status, a.growth], [b.status, b.growth]);
+});
+
+test('gloves cost pips, need a living plant and are used up', () => {
+  const S = shopper(40);
+  assert.ok(doAction(S, { type: 'glove', plot: 0 }, 101).error);
+  assert.equal(doAction(S, { type: 'buyGloves' }, 101).error, undefined);
+  assert.deepEqual([S.pips, S.gloves], [10, 1]);
+  assert.ok(doAction(S, { type: 'buyGloves' }, 101).error, 'cannot afford a second pair');
+  assert.ok(doAction(S, { type: 'glove', plot: 0 }, 101).error, 'empty plot');
+  S.plots[0] = { ...newPlant('moonmoss', 100), status: 'wilted' };
+  assert.ok(doAction(S, { type: 'glove', plot: 0 }, 101).error, 'dead plant');
+  S.plots[0] = ripePlant();
+  assert.equal(doAction(S, { type: 'glove', plot: 0 }, 101).error, undefined);
+  assert.deepEqual([S.gloves, S.plots[0].gloved], [0, true]);
+  S.gloves = 1;
+  assert.ok(doAction(S, { type: 'glove', plot: 0 }, 101).error, 'already gloved');
+});
+
+test('only three living plants can wear gloves', () => {
+  const S = shopper(0);
+  S.gloves = 4;
+  for (const i of [0, 1, 2, 3]) S.plots[i] = ripePlant();
+  for (const i of [0, 1, 2]) assert.equal(doAction(S, { type: 'glove', plot: i }, 101).error, undefined);
+  assert.equal(MAX_GLOVED, 3);
+  assert.ok(doAction(S, { type: 'glove', plot: 3 }, 101).error);
+  S.plots[0].status = 'rotten';
+  assert.equal(doAction(S, { type: 'glove', plot: 3 }, 101).error, undefined, 'dead plants free their gloves');
+});
+
+// ---------- compost ----------
+test('composting returns half the seed price, rounded up', () => {
+  const S = shopper(0);
+  S.plots[0] = { ...newPlant('moonmoss', 100), status: 'wilted' };
+  S.plots[1] = { ...newPlant('wheelbloom', 100), status: 'rotten' };
+  doAction(S, { type: 'clear', plot: 0 }, 101);
+  doAction(S, { type: 'clear', plot: 1 }, 101);
+  assert.deepEqual([S.pips, S.composted, S.plots[0], S.plots[1]], [5 + 30, 2, null, null]);
+});
+
+test('no seed can earn a profit through compost, and living plants cannot be composted', () => {
+  for (const seed of ['moonmoss', 'trotbean', 'zoomflower', 'mileoak', 'comet', 'dreamcap', 'twinvine', 'wheelbloom']) {
+    const S = shopper(500);
+    S.xp = 5000;
+    const before = S.pips;
+    doAction(S, { type: 'plant', plot: 0, seed }, 101);
+    S.plots[0].status = 'wilted';
+    doAction(S, { type: 'clear', plot: 0 }, 102);
+    assert.ok(S.pips < before, seed);
+  }
+  const S = shopper(0);
+  S.plots[0] = newPlant('moonmoss', 100);
+  assert.ok(doAction(S, { type: 'clear', plot: 0 }, 101).error);
+  assert.equal(S.pips, 0);
+});
+
+// ---------- decorations ----------
+test('a decoration is paid for once and never adds points', () => {
+  const S = shopper(500);
+  const { seasonScore, xp } = S;
+  assert.equal(doAction(S, { type: 'buyDecor', item: 'fence' }, 101).error, undefined);
+  assert.deepEqual([S.pips, S.decor.fence, S.seasonScore, S.xp], [300, true, seasonScore, xp]);
+  assert.ok(doAction(S, { type: 'buyDecor', item: 'fence' }, 101).error);
+  assert.equal(S.pips, 300);
+});
+
+test('a decoration needs the price and a real item', () => {
+  const S = shopper(50);
+  for (const item of ['fence', 'free-points', 'constructor', undefined]) assert.ok(doAction(S, { type: 'buyDecor', item }, 101).error, String(item));
+  assert.equal(S.pips, 50);
+  assert.ok(DECOR.every(d => d.price >= 100));
+});
+
+// ---------- badges ----------
+test('there are 21 badges, each with a name and a way to earn it', () => {
+  const list = Object.values(ACHIEVEMENTS);
+  assert.equal(list.length, 21);
+  assert.ok(list.every(([name, how]) => name && how));
+});
+
+const badge = (S, plot = 0, cur = 101) => pick(S, plot, cur);
+
+test('picking badges come at 10, 50 and 200 plants', () => {
+  const S = ripeGarden('moonmoss');
+  S.harvests = 9;
+  badge(S);
+  assert.equal(S.ach.pick10, true);
+  assert.equal(S.ach.pick50, undefined);
+  S.harvests = 199; S.plots[0] = ripePlant();
+  badge(S);
+  assert.deepEqual([S.ach.pick50, S.ach.pick200], [true, true]);
+});
+
+test('combo badges come at 3 and 5', () => {
+  const S = ripeGarden('moonmoss', 'trotbean');
+  S.plots[4] = ripePlant('zoomflower');
+  pick(S, 0, 101); pick(S, 3, 101);
+  assert.equal(S.ach.combo3, undefined);
+  pick(S, 4, 101);
+  assert.equal(S.ach.combo3, true);
+  assert.equal(S.ach.combo5, undefined);
+});
+
+test('a full day needs all three challenges', () => {
+  const S = withDaily(ripeGarden('moonmoss'), 'moon1', 'pick1');
+  S.daily.items.push({ id: 'water1', progress: 0, done: false });
+  pick(S, 0);
+  assert.equal(S.ach.daily3, undefined);
+  S.daily.items[2].done = true;
+  doAction(S, { type: 'buyCloche' }, 101);
+  assert.equal(S.ach.daily3, true);
+});
+
+test('badges for totals, gloves, cloches, level, pips, shop and compost all fire', () => {
+  const S = ripeGarden('moonmoss');
+  S.plots[0].gloved = true; S.seasonScore = 990; S.xp = 2490; S.pips = 2000;
+  pick(S, 0);
+  assert.deepEqual([S.ach.gloved, S.ach.week1000, S.ach.level5, S.ach.pips1000], [true, true, true, true]);
+  for (const item of ['flag', 'fence', 'lantern']) doAction(S, { type: 'buyDecor', item }, 101);
+  assert.equal(S.ach.decor3, true);
+  S.composted = 9;
+  S.plots[1] = { ...newPlant('moonmoss', 100), status: 'wilted' };
+  doAction(S, { type: 'clear', plot: 1 }, 101);
+  assert.equal(S.ach.compost10, true);
+  const C = blankState(1);
+  C.processed = 100;
+  C.plots[0] = { ...newPlant('moonmoss', 99), cloche: true, zoomRun: 1 };
+  settleRounds(C, new Map([[101, { work: 700 }]]), 101);
+  assert.equal(C.ach.saved, true);
+});
+
+test('a badge is announced once', () => {
+  const S = ripeGarden('moonmoss', 'moonmoss');
+  S.harvests = 9;
+  badge(S, 0, 101);
+  const entries = S.log.filter(e => e.text.includes('Green fingers')).length;
+  badge(S, 3, 102);
+  assert.equal(S.log.filter(e => e.text.includes('Green fingers')).length, entries);
 });

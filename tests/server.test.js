@@ -402,6 +402,33 @@ test('a garden saved before challenges picks them up without losing anything', a
   assert.equal(state.daily.items.length, 3);
 });
 
+test('the server sells gloves and decorations by its own prices', async () => {
+  const env = playEnv(), c = await player(env);
+  const g = await c.call('/api/action', action({ type: 'buyGloves', price: 0 }));
+  assert.deepEqual([g.status, g.body.state.gloves, g.body.state.pips], [200, 1, 30]);
+  const d = await c.call('/api/action', action({ type: 'buyDecor', item: 'pond', price: 0 }));
+  assert.equal(d.status, 422);
+  assert.equal(d.body.state, undefined);
+  assert.equal((await c.call('/api/garden')).body.state.decor.pond, undefined);
+});
+
+test('badges cannot be claimed in a request', async () => {
+  const env = playEnv(), c = await player(env);
+  const res = await c.call('/api/action', action({ type: 'buyCloche', ach: { pick200: true }, decor: { pond: true }, gloves: 99 }));
+  assert.equal(res.status, 200);
+  assert.deepEqual([res.body.state.ach.pick200, res.body.state.decor.pond, res.body.state.gloves], [undefined, undefined, 0]);
+});
+
+test('a garden from before these features can buy them', async () => {
+  const env = playEnv(), c = await player(env);
+  const old = JSON.parse(sqlOne(env, 'SELECT state FROM gardens').state);
+  delete old.gloves; delete old.decor; delete old.composted;
+  old.pips = 300;
+  env.sqlite.prepare('UPDATE gardens SET state = ?').run(JSON.stringify(old));
+  assert.equal((await c.call('/api/action', action({ type: 'buyGloves' }))).body.state.gloves, 1);
+  assert.equal((await c.call('/api/action', action({ type: 'buyDecor', item: 'flag' }))).body.state.decor.flag, true);
+});
+
 test('Squeekchain being down does not stop play', async () => {
   const env = playEnv(), c = await player(env);
   env.fetchUpstream = async () => { throw new Error('offline'); };

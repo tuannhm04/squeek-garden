@@ -189,3 +189,12 @@ test('impossible challenges or combos are refused', () => {
     { combo: { count: 2, lastSeed: 'gold', lastRound: 1 } },
   ]) assert.ok(validateState({ ...blank(), ...change }).length, JSON.stringify(change));
 });
+
+test('old saves without gloves, compost or decorations still load, and bad ones are refused', () => {
+  const old = blank(); delete old.gloves; delete old.composted; delete old.decor;
+  assert.deepEqual(validateState(old), []);
+  assert.deepEqual(validateState({ ...blank(), gloves: 2, composted: 3, decor: { fence: true } }), []);
+  for (const change of [{ gloves: -1 }, { composted: 'x' }, { decor: { 'gold-tree': true } }, { decor: [] }]) {
+    assert.ok(validateState({ ...blank(), ...change }).length, JSON.stringify(change));
+  }
+});

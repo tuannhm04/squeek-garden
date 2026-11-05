@@ -164,7 +164,8 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .tool:active { transform: none; }
 .tool b { display: block; font-size: 19px; font-weight: 600; line-height: 1.1; }
 .tool small { display: block; font-size: 17px; line-height: 1.15; margin-top: 2px; color: var(--muted); }
-.buy { grid-column: 1 / -1; background: var(--gold); }
+.buy { background: var(--gold); }
+#tGloves { grid-column: 1 / -1; }
 .buy:hover { background: var(--cream); }
 
 /* the record */
@@ -172,6 +173,11 @@ dd { margin: 0; font: 30px/1 var(--num); }
 .record summary:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .record .lower { margin-top: 12px; }
 .record + .record { margin-top: -10px; }
+.shopnote { margin-top: 8px; }
+.decorlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.decorbtn { text-align: left; }
+.decorbtn small { display: block; color: #6b4a33; font-size: 17px; }
+.decorbtn:disabled { opacity: .7; }
 .dailylist { list-style: none; margin: 10px 0 8px; padding: 0; display: grid; gap: 4px; }
 .dailylist li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; background: var(--panel); padding: 5px 10px; }
 .dailylist b { font-weight: 400; color: var(--gold); }

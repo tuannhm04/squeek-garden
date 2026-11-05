@@ -1,5 +1,5 @@
-import { ACHIEVEMENTS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, LEVELS, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS,
-  addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
+import { ACHIEVEMENTS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, DECOR, LEVELS, PLOT_PRICES, QUESTS, SEEDS, SEED_KEYS, START_PLOTS,
+  addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, ripeWindow, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
 import { DEMO_ROUNDS, demoStart } from './demo.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
@@ -131,7 +131,9 @@ function act(a) {
 function plotClick(i) {
   if (i >= state.open) return;
   const p = state.plots[i];
-  if (selected === 'water' || selected === 'cloche') {
+  if (selected === 'gloves') {
+    if (act({ type: 'glove', plot: i }) && !state.gloves) selected = null;
+  } else if (selected === 'water' || selected === 'cloche') {
     if (selected === 'water') { if (act({ type: 'water', plot: i })) selected = null; }
     else if (act({ type: 'cover', plot: i }) && !state.cloches) selected = null;
   } else if (!p) {
@@ -158,6 +160,7 @@ let hintTimer = null;
 const hintText = () => {
   if (selected === 'water') return 'Tap a growing plant to water it.';
   if (selected === 'cloche') return 'Tap a growing plant to cover it.';
+  if (selected === 'gloves') return 'Tap a growing or ripe plant. Once ripe it keeps for 24 hours instead of 2.';
   if (selected) return SEEDS[selected].blurb;
   return 'Pick a packet or tool, then tap a plot.';
 };
@@ -269,10 +272,10 @@ function render() {
     }
     const sd = SEEDS[p.seed], f = progress(p);
     let stat, extra = '';
-    if (p.status === 'ripe') { const { value, diverse } = harvestValue(state, i); stat = `Ripe, pick for ${value}${diverse ? ' (mixed +20%)' : ''}`; extra = `<span class="pstat">rots in ${RIPE_WINDOW - (state.processed - p.ripeRound)} rounds</span>`; }
-    else if (p.status === 'wilted') stat = 'Wilted, tap to clear';
-    else if (p.status === 'rotten') stat = 'Rotten, tap to clear';
-    else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : ''; }
+    if (p.status === 'ripe') { const { value, diverse } = harvestValue(state, i); stat = `Ripe, pick for ${value}${diverse ? ' (mixed +20%)' : ''}`; extra = `<span class="pstat">rots in ${ripeWindow(p) - (state.processed - p.ripeRound)} rounds${p.gloved ? ', gloved' : ''}</span>`; }
+    else if (p.status === 'wilted') stat = `Wilted, tap to compost for ${Math.ceil(sd.price / 2)}`;
+    else if (p.status === 'rotten') stat = `Rotten, tap to compost for ${Math.ceil(sd.price / 2)}`;
+    else { stat = progressText(p); extra = armed === i ? '<span class="pstat"><b>Tap again to dig up</b></span>' : p.gloved ? '<span class="pstat">Gloved</span>' : ''; }
     return `<button class="plot ${p.status}${p.cloche ? ' covered' : ''}" data-i="${i}" aria-label="Plot ${i + 1}, ${esc(sd.name)}, ${esc(stat)}">${p.cloche ? icon('dome', 'dome') : ''}${p.status === 'ripe' ? icon('sparkle', 'sparkle') : ''}${plantArt(p.seed, f, p.status)}<span class="plate"><span class="pname">${esc(sd.name)}</span><span class="pstat">${esc(stat)}</span>${p.status === 'growing' ? `<span class="gbar"><i style="width:${Math.round(f * 100)}%"></i></span>` : ''}${extra}</span></button>`;
   }).join('');
   $('plots').classList.toggle('planting', !!SEEDS[selected]);
@@ -285,6 +288,11 @@ function render() {
   $('tWater').setAttribute('aria-pressed', selected === 'water');
   $('tCloche').setAttribute('aria-pressed', selected === 'cloche');
   $('tCloche').querySelector('b').textContent = `Glass cloche ×${state.cloches}`;
+  $('tGloves').setAttribute('aria-pressed', selected === 'gloves');
+  $('tGloves').querySelector('b').textContent = `Harvest gloves ×${state.gloves || 0}`;
+  const owned = state.decor || {};
+  $('decorSummary').textContent = `Garden shop, ${Object.keys(owned).length} of ${DECOR.length} owned`;
+  $('decor').innerHTML = DECOR.map(d => `<button class="decorbtn" data-decor="${d.id}" ${owned[d.id] ? 'disabled' : ''}>${esc(d.name)}<small>${owned[d.id] ? 'In your garden' : `${d.price} pips`}</small></button>`).join('');
 
   const q = state.quest, qd = q && QUESTS.find(x => x.id === q.id);
   $('quest').innerHTML = qd ? `<b>${esc(qd.text)}</b><span>${q.done ? 'Done ✓' : `${q.progress}/${qd.n}, +${qd.reward} pips`}</span>` : '';
@@ -334,6 +342,17 @@ function sline(x0, y0, x1, y1, c) {
 function sdisc(cx, cy, r, c) { for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + .3) dot(cx + x, cy + y, c); }
 function cloud(x, y) { sctx.fillStyle = PC.white; sctx.fillRect(x, y, 10, 2); sctx.fillRect(x + 2, y - 1, 5, 1); sctx.fillStyle = '#d4f1ff'; sctx.fillRect(x, y + 2, 10, 1); }
 
+/** Bought decorations stand at the left of the garden, away from the plants and the wheel. */
+function drawDecor(day) {
+  const d = state.decor || {}, G = GROUND, box = (x, y, w, h, c) => { sctx.fillStyle = c; sctx.fillRect(x, y, w, h); };
+  if (d.fence) for (let x = 2; x < Math.min(44, WX - 90); x += 4) { box(x, G - 5, 1, 5, PC.cream); box(x + 1, G - 4, 3, 1, PC.cream); }
+  if (d.flag) { box(6, G - 14, 1, 14, PC.woodDark); box(7, G - 14, 5, 3, PC.red); }
+  if (d.lantern) { box(16, G - 10, 1, 10, PC.woodDark); box(15, G - 12, 3, 3, day ? PC.gold : PC.yellow); }
+  if (d.gnome) { box(23, G - 3, 3, 3, PC.blue); box(23, G - 4, 3, 1, PC.furLight); box(23, G - 5, 3, 1, PC.red); box(24, G - 7, 1, 2, PC.red); }
+  if (d.scarecrow) { box(31, G - 10, 1, 10, PC.woodDark); box(28, G - 8, 7, 1, PC.wood); box(30, G - 12, 3, 3, PC.yellow); box(29, G - 13, 5, 1, PC.woodDark); }
+  if (d.pond) { box(38, G + 2, 9, 2, day ? '#6ec3ef' : '#28366b'); box(39, G + 4, 7, 1, day ? '#6ec3ef' : '#28366b'); }
+}
+
 function drawScene(t) {
   const dt = Math.min(.1, (t - lastT) / 1000); lastT = t;
   const st = src.status, running = !!(st && st.running), rpm = st ? st.rpm : 0, still = reduceMotion.matches;
@@ -366,6 +385,8 @@ function drawScene(t) {
   band(GROUND + 1, SH - GROUND - 1, running ? PC.soil : '#4a2f26');
   band(SH - 3, 3, running ? '#6b4130' : '#2e1e1f'); // the same earth the page continues in
   for (let y = GROUND + 2; y < SH - 2; y++) for (let x = (y % 2) * 2; x < SW; x += 4) dot(x, y, running ? PC.soilDark : '#33201b');
+
+  drawDecor(running);
 
   // the player's plots as a row of plants
   const n = state.open, step = Math.min(14, (WX - 24) / n), x0 = WX - 24 - n * step;
@@ -412,6 +433,9 @@ function applyIcons() {
 }
 $('tCloche').onclick = () => { if (!state.cloches) { flashHint('Buy a cloche first.'); return; } selected = selected === 'cloche' ? null : 'cloche'; render(); };
 $('bCloche').onclick = buyCloche;
+$('tGloves').onclick = () => { if (!state.gloves) { flashHint('Buy gloves first.'); return; } selected = selected === 'gloves' ? null : 'gloves'; render(); };
+$('bGloves').onclick = () => { act({ type: 'buyGloves' }); render(); };
+$('decor').addEventListener('click', e => { const b = e.target.closest('[data-decor]'); if (b && !b.disabled) { act({ type: 'buyDecor', item: b.dataset.decor }); render(); } });
 
 function setMode(m) {
   mode = m; src = m === 'live' ? live : demo; selected = null; armed = null;

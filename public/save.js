@@ -1,6 +1,6 @@
 // Live garden persistence. Schema v2 stays untouched under its old key: v3 lives beside it,
 // so going back to the previous build always finds the save it knows.
-import { DAILY_CHALLENGES, MAX_PLOTS, SEEDS, START_PLOTS } from './engine.js';
+import { DAILY_CHALLENGES, DECOR, MAX_PLOTS, SEEDS, START_PLOTS } from './engine.js';
 
 export const KEY_V2 = 'squeek-garden:live';
 export const KEY_V3 = 'squeek-garden:live:v3';
@@ -38,6 +38,9 @@ export function validateState(s) {
   if (!isObject(s.ach)) out.push('bad achievements');
   if (!Array.isArray(s.log)) out.push('bad diary');
   if (s.chain !== undefined && typeof s.chain !== 'string') out.push('bad chain');
+  if (s.gloves !== undefined && !isCount(s.gloves)) out.push('bad gloves');
+  if (s.composted !== undefined && !isCount(s.composted)) out.push('bad compost count');
+  if (s.decor !== undefined && !(isObject(s.decor) && Object.keys(s.decor).every(k => DECOR.some(d => d.id === k)))) out.push('bad decorations');
   if (s.daily !== null && s.daily !== undefined) {
     const ok = isObject(s.daily) && Number.isInteger(s.daily.day) && Array.isArray(s.daily.items)
       && s.daily.items.every(x => isObject(x) && DAILY_CHALLENGES.some(d => d.id === x.id) && isCount(x.progress) && typeof x.done === 'boolean');

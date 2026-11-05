@@ -1,5 +1,6 @@
 import { ACHIEVEMENTS, CLASS_NAME, COMBO_BONUS, COMBO_WINDOW, DAILY_CHALLENGES, LEVELS, PLOT_PRICES, QUESTS, RIPE_WINDOW, SEEDS, SEED_KEYS, START_PLOTS,
   addLog as logTo, blankState, classify, doAction, harvestValue, levelOf, progress, progressText, rollPeriods as rollStatePeriods, seasonEndsAt, seasonId, settleRounds, syncChain } from './engine.js';
+import { DEMO_ROUNDS, demoStart } from './demo.js';
 import { RoundLedger, fetchHistory } from './settlement.js';
 import { applyImport, exportSave, loadSave, parseImport, writeSave } from './save.js';
 import { api, connectWallet } from './wallet.js';
@@ -72,25 +73,20 @@ const live = {
   },
 };
 
-function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const demo = {
-  rounds: new Map(), oldest: 1, latest: 0, roundMs: 8000, start: Date.now(), mood: 'jog', R: mulberry(Date.now()), status: null,
-  next: { nap: [.55, .25, .2], jog: [.25, .5, .25], zoom: [.25, .4, .35] },
-  reset() { this.rounds.clear(); this.latest = 0; this.start = Date.now(); this.mood = 'jog'; },
+  rounds: new Map(), oldest: 1, latest: 0, roundMs: 8000, start: Date.now(), at: demoStart(), status: null,
+  reset() { this.rounds.clear(); this.latest = 0; this.start = Date.now(); this.at = demoStart(); },
   currentRound() { return Math.floor((Date.now() - this.start) / this.roundMs) + 1; },
   roundEndsAt(r) { return this.start + r * this.roundMs; },
   questKey() { return Math.floor(this.currentRound() / 15); },
   tick() {
     const cur = this.currentRound();
     while (this.latest < cur - 1) {
-      const t = this.next[this.mood], x = this.R();
-      this.mood = x < t[0] ? 'nap' : x < t[0] + t[1] ? 'jog' : 'zoom';
-      const work = this.mood === 'nap' ? 0 : this.mood === 'jog' ? 40 + Math.floor(this.R() * 450) : 500 + Math.floor(this.R() * 260);
-      this.rounds.set(++this.latest, { work, cum: null });
+      this.rounds.set(++this.latest, { work: DEMO_ROUNDS[this.at++ % DEMO_ROUNDS.length], cum: null });
     }
+    const work = DEMO_ROUNDS[this.at % DEMO_ROUNDS.length];
     const frac = 1 - (this.roundEndsAt(cur) - Date.now()) / this.roundMs;
-    const peek = this.mood === 'nap' ? 0 : Math.round((this.mood === 'jog' ? 300 : 650) * frac);
-    this.status = { online: true, running: this.mood !== 'nap', rpm: this.mood === 'nap' ? 0 : this.mood === 'jog' ? 38 : 71, liveWork: peek };
+    this.status = { online: true, running: work > 0, rpm: work === 0 ? 0 : work < 500 ? 38 : 71, liveWork: Math.round(work * frac) };
   },
 };
 
@@ -211,7 +207,7 @@ function renderStrip() {
 /** Tells the player when this week's scores lock. The garden itself never ends. */
 function renderSeasonEnd() {
   const el = $('seasonEnd');
-  if (mode !== 'live') { el.textContent = 'Demo rounds are simulated. Demo has no season end.'; return; }
+  if (mode !== 'live') { el.textContent = "Demo replays Squeektoshi's past rounds at 8 seconds each. It has no season end."; return; }
   const end = seasonEndsAt(seasonId()), mins = Math.max(0, Math.floor((end - Date.now()) / 60000));
   const left = mins >= 1440 ? `${Math.floor(mins / 1440)}d ${Math.floor(mins % 1440 / 60)}h` : mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
   const when = new Date(end).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -423,7 +419,7 @@ function setMode(m) {
   state = load(m);
   if (m === 'live' && wallet) api('/api/garden').then(d => { if (mode === 'live' && wallet) { state = d.state; rollPeriods(); processRounds(); render(); } }).catch(e => toast(e.message));
   $('mLive').setAttribute('aria-pressed', m === 'live'); $('mDemo').setAttribute('aria-pressed', m === 'demo');
-  if (m === 'demo') { state.processed = 0; state.pips = 200; addLog('', 'Demo garden: rounds last 8 seconds, the hamster is simulated and you start with 200 pips.', 1); rollPeriods(); }
+  if (m === 'demo') { state.processed = 0; state.pips = 200; addLog('', "Demo garden: Squeektoshi's past rounds replay at 8 seconds each, and you start with 200 pips.", 1); rollPeriods(); }
   else syncLive();
   render();
 }

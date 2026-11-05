@@ -4,7 +4,7 @@ import { api } from '../wallet.js';
 const $ = id => document.getElementById(id);
 const NOTE = {
   live: 'The server plays every Live garden from real wheel rounds and works out its score, so these numbers cannot be edited from a browser.',
-  practice: 'Demo rounds are simulated and the browser reports the score, so this board is for fun and does not count towards Live.',
+  practice: 'Demo replays past rounds and the browser reports the score, so this board is for fun and does not count towards Live.',
 };
 let board = 'live', back = 0;
 

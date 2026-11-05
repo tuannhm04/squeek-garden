@@ -41,7 +41,7 @@ A settlement that closes one round gives that round's exact work. A settlement t
 
 If Squeekchain redeploys and counts rounds from the start again, a garden keeps its plants and progress, moves its round marks to the new count and waits for new rounds. Scores lock every Monday at 00:00 UTC, and the play screen counts down to it. The garden itself never ends.
 
-**Demo mode** simulates 8-second rounds so you can see a whole growth cycle in a minute.
+**Demo mode** replays Squeektoshi's real past rounds at 8 seconds each, so it behaves like he does: mostly naps, with short runs.
 
 ## Run it
 
@@ -75,7 +75,7 @@ Without a wallet, your garden lives in this browser. Schema v3 is stored beside 
 
 Connecting a wallet means signing a text message (Sign-In with Ethereum), which costs no gas. You then play a separate garden kept by the server, in Cloudflare D1. The browser only sends what you did. The server checks each action against the same rules in `public/engine.js`, plays real settled rounds itself and works out the score, so editing the browser or a request cannot raise it. Browser saves are never imported into it.
 
-The Live board only takes those scores. Demo rounds are simulated, so Demo scores go on a separate Practice board that does not count.
+The Live board only takes those scores. Demo rounds are replays, so Demo scores go on a separate Practice board that does not count.
 
 ## Deploy
 
